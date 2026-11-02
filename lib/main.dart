@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-void main() {
-  runApp(const WiFiFingerprintApp());
-}
+void main() => runApp(const WiFiFingerprintApp());
 
 class WiFiFingerprintApp extends StatelessWidget {
   const WiFiFingerprintApp({super.key});
@@ -14,10 +12,17 @@ class WiFiFingerprintApp extends StatelessWidget {
       title: 'WiFi Fingerprint',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF176B87),
-        ),
         useMaterial3: true,
+        colorScheme: const ColorScheme.light(
+          primary: Colors.black,
+          surface: Colors.white,
+        ),
+        scaffoldBackgroundColor: Colors.white,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
       ),
       home: const SurveyHomePage(),
     );
@@ -32,46 +37,18 @@ class SurveyHomePage extends StatefulWidget {
 }
 
 class _SurveyHomePageState extends State<SurveyHomePage> {
-
   static const MethodChannel _wifiChannel =
-    MethodChannel('wifi_fingerprint/scanner');
+      MethodChannel('wifi_fingerprint/scanner');
 
-List<Map<String, dynamic>> _accessPoints = [];
-bool _isScanning = false;
-
-Future<void> _scanWifi() async {
-  setState(() {
-    _isScanning = true;
-  });
-
-  try {
-    final result =
-        await _wifiChannel.invokeMethod<List<dynamic>>('scanWifi');
-
-    final accessPoints = (result ?? []).map((item) {
-      return Map<String, dynamic>.from(item as Map);
-    }).toList();
-
-    setState(() {
-      _accessPoints = accessPoints;
-      _scanCount++;
-    });
-  } on PlatformException catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Wi-Fi scan failed: ${e.message}')),
-    );
-  } finally {
-    setState(() {
-      _isScanning = false;
-    });
-  }
-}
-  final _sessionController = TextEditingController();
+  final _sessionController = TextEditingController(text: 'Test Session');
   final _buildingController = TextEditingController();
   final _locationController = TextEditingController();
 
+  List<Map<String, dynamic>> _accessPoints = [];
   bool _isSurveying = false;
+  bool _isScanning = false;
   int _scanCount = 0;
+  DateTime? _lastScanTime;
 
   @override
   void dispose() {
@@ -81,44 +58,73 @@ Future<void> _scanWifi() async {
     super.dispose();
   }
 
+  Future<void> _scanWifi() async {
+    setState(() => _isScanning = true);
+
+    try {
+      final result =
+          await _wifiChannel.invokeMethod<List<dynamic>>('scanWifi');
+      final accessPoints = (result ?? []).map((item) {
+        return Map<String, dynamic>.from(item as Map);
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _accessPoints = accessPoints;
+        _scanCount++;
+        _lastScanTime = DateTime.now();
+      });
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Scan failed: ${e.message ?? e.code}')),
+      );
+    } on MissingPluginException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Android scanner channel is unavailable.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
+    }
+  }
+
   void _toggleSurvey() {
     if (!_isSurveying && _sessionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter a session name before starting.'),
-        ),
+        const SnackBar(content: Text('Enter a session name first.')),
       );
       return;
     }
 
-    setState(() {
-      _isSurveying = !_isSurveying;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isSurveying
-              ? 'Survey session started.'
-              : 'Survey session stopped.',
-        ),
-      ),
-    );
+    setState(() => _isSurveying = !_isSurveying);
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    String? hint,
-    IconData? icon,
-  }) {
-    return TextField(
-      controller: controller,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        prefixIcon: icon == null ? null : Icon(icon),
-        border: const OutlineInputBorder(),
+  void _reset() {
+    setState(() {
+      _accessPoints = [];
+      _scanCount = 0;
+      _lastScanTime = null;
+    });
+  }
+
+  String _timeLabel(DateTime? time) {
+    if (time == null) return '—';
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+  }
+
+  Widget _field(String label, TextEditingController controller) {
+    return SizedBox(
+      width: 220,
+      child: TextField(
+        controller: controller,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          labelText: label,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          border: const OutlineInputBorder(),
+        ),
       ),
     );
   }
@@ -127,201 +133,116 @@ Future<void> _scanWifi() async {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WiFi Fingerprint'),
-        centerTitle: false,
+        title: const Text('WiFi Fingerprint', style: TextStyle(fontSize: 18)),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1),
+        ),
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const Text(
-              'Indoor Survey',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Collect Wi-Fi fingerprints for indoor positioning.',
-              style: TextStyle(
-                color: Colors.grey.shade700,
-                fontSize: 15,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Survey Session',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: _sessionController,
-                      label: 'Session name',
-                      hint: 'e.g. JU Library - Survey 1',
-                      icon: Icons.assignment_outlined,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildTextField(
-                      controller: _buildingController,
-                      label: 'Building (optional)',
-                      hint: 'e.g. Library',
-                      icon: Icons.business_outlined,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildTextField(
-                      controller: _locationController,
-                      label: 'Location label (optional)',
-                      hint: 'e.g. First floor - Entrance',
-                      icon: Icons.place_outlined,
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _toggleSurvey,
-                        icon: Icon(
-                          _isSurveying ? Icons.stop : Icons.play_arrow,
-                        ),
-                        label: Text(
-                          _isSurveying ? 'Stop Survey' : 'Start Survey',
-                        ),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          backgroundColor:
-                              _isSurveying ? Colors.red : null,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Collection Status',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Card(
-  child: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Nearby Access Points',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _field('Session', _sessionController),
+              _field('Building', _buildingController),
+              _field('Location label', _locationController),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _isScanning ? null : _scanWifi,
-            icon: _isScanning
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.wifi_find),
-            label: Text(_isScanning ? 'Scanning...' : 'Scan Wi-Fi'),
+          const SizedBox(height: 10),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: _toggleSurvey,
+                child: Text(_isSurveying ? 'Stop survey' : 'Start survey'),
+              ),
+              Text(
+                _isSurveying ? 'Status: Collecting' : 'Status: Idle',
+                style: const TextStyle(fontSize: 13),
+              ),
+              Text('Scans: $_scanCount', style: const TextStyle(fontSize: 13)),
+              Text('APs: ${_accessPoints.length}',
+                  style: const TextStyle(fontSize: 13)),
+              Text('Last scan: ${_timeLabel(_lastScanTime)}',
+                  style: const TextStyle(fontSize: 13)),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        if (_accessPoints.isEmpty)
-          const Text('No scan results yet.')
-        else
-          ..._accessPoints.map((ap) {
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.wifi),
-              title: Text(ap['ssid']?.toString() ?? 'Hidden network'),
-              subtitle: Text(
-                'BSSID: ${ap['bssid']}  •  ${ap['frequency']} MHz',
+          const Divider(height: 20),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _isScanning ? null : _scanWifi,
+                icon: _isScanning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.wifi_find, size: 16),
+                label: Text(_isScanning ? 'Scanning…' : 'Scan Wi-Fi'),
               ),
-              trailing: Text('${ap['rssi']} dBm'),
-            );
-          }),
-      ],
-    ),
-  ),
-),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Icon(
-                          _isSurveying
-                              ? Icons.circle
-                              : Icons.circle_outlined,
-                          color: _isSurveying
-                              ? Colors.green
-                              : Colors.grey,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _isSurveying ? 'Survey active' : 'Not surveying',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Icon(Icons.wifi, size: 20),
-                        const SizedBox(width: 8),
-                        Text('Scans collected: $_scanCount'),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Nearby access points will appear here once the '
-                      'Android scanner is connected.',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: _reset,
+                child: const Text('Reset'),
               ),
-            ),
-
-            const SizedBox(height: 20),
-
-            OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _scanCount = 0;
-                });
-              },
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('Reset scan counter'),
-            ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Row(
+            children: [
+              Expanded(flex: 3, child: Text('SSID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 4, child: Text('BSSID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              SizedBox(width: 76, child: Text('RSSI', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              SizedBox(width: 78, child: Text('MHz', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+            ],
+          ),
+          const Divider(height: 8),
+          if (_accessPoints.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text('No scan results.', style: TextStyle(fontSize: 13)),
+            )
+          else
+            ..._accessPoints.map((ap) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          ap['ssid']?.toString().isNotEmpty == true
+                              ? ap['ssid'].toString()
+                              : '<hidden>',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 4,
+                        child: Text(ap['bssid']?.toString() ?? '—',
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                      SizedBox(
+                        width: 76,
+                        child: Text('${ap['rssi'] ?? '—'} dBm',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                      SizedBox(
+                        width: 78,
+                        child: Text(ap['frequency']?.toString() ?? '—',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                )),
+        ],
       ),
     );
   }
