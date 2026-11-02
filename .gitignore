@@ -43,3 +43,15 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# .NET build outputs
+**/bin/
+**/obj/
+
+# Local backend configuration and secrets
+**/appsettings.Development.json
+**/appsettings.*.json
+!**/appsettings.json
+
+# Local database files
+*.mdf
+*.ldf
