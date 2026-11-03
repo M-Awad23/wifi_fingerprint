@@ -74,7 +74,7 @@ The repository currently contains:
 - A Flutter-to-Android method channel named `wifi_fingerprint/scanner`, with a `scanWifi` method.
 - A starter ASP.NET Core API project under `backend/WifiFingerprint.Api/`.
 
-The Flutter survey UI and Android Wi-Fi scanning integration are the current foundation. The backend is still a starter API, not yet the fingerprint/map data API.
+The Flutter survey UI and Android Wi-Fi scanning integration are the current foundation. The backend now has an initial SQL Server persistence foundation for Wi-Fi survey sessions, scan batches and access-point observations. API endpoints and migrations are not yet implemented.
 
 **Not yet implemented based on the repository snapshot documented here:** full map authoring, map import/calibration workflow, durable map package storage, durable multimodal survey storage, motion/magnetic collection, positioning algorithms, sensor fusion, and live map overlay. The roadmap below is intended architecture, not a claim these features already exist.
 
@@ -93,7 +93,7 @@ The Flutter survey UI and Android Wi-Fi scanning integration are the current fou
 | Accelerometer and gyroscope collection | Planned | Raw timestamped samples |
 | Magnetometer collection | Planned | Raw XYZ values and derived magnitude |
 | Durable local map and survey storage | Planned | Offline-first |
-| SQL Server persistence/API | Planned | Backend currently starter |
+| SQL Server persistence/API | Foundation implemented | EF Core entities/context and LocalDB connection configured; migration and endpoints pending |
 | Wi-Fi KNN/WKNN localization | Planned | Needs labelled fingerprints |
 | PDR and magnetic localization | Planned | Needs sensor data and calibration |
 | Sensor fusion | Planned | After baselines are evaluated |
@@ -493,7 +493,7 @@ Technology choices are provisional. Keep the map package, API contracts and posi
 
 | Date | Update |
 |---|---|
-| 2026-11-03 | Established the product end goal as user-created indoor maps with a Wi-Fi/PDR/magnetic positioning layer. Reframed mapping as a core app capability rather than a dependency on a separate map team. Added mapping-method comparison, canonical map package, versioning/coordinate contract, map-authoring MVP and staged LiDAR/SLAM and phone-AR paths. |\n| 2026-11-03 | Reordered the roadmap to prioritize device data collection and positioning algorithm prototypes, followed by robotics mapping-format discovery. Deferred map authoring/import and durable persistence until the mapping team's actual export formats and coordinate conventions are known. Added explicit integration-discovery deliverables and updated immediate priorities. |
+| 2026-11-03 | Established the product end goal as user-created indoor maps with a Wi-Fi/PDR/magnetic positioning layer. Reframed mapping as a core app capability rather than a dependency on a separate map team. Added mapping-method comparison, canonical map package, versioning/coordinate contract, map-authoring MVP and staged LiDAR/SLAM and phone-AR paths. |\n| 2026-11-03 | Reordered the roadmap to prioritize device data collection and positioning algorithm prototypes, followed by robotics mapping-format discovery. Deferred map authoring/import and durable persistence until the mapping team's actual export formats and coordinate conventions are known. Added explicit integration-discovery deliverables and updated immediate priorities. |\n| 2026-11-03 | Added initial backend persistence foundation: `SurveySession`, `ScanBatch`, and `AccessPointObservation` entities; `WifiFingerprintDbContext` with relationships, lengths and indexes; SQL Server DbContext registration; and a LocalDB connection string. EF migration/database creation and API endpoints remain pending. |
 
 ---
 
