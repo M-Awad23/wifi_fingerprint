@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:async';
 
 void main() => runApp(const WiFiFingerprintApp());
 
@@ -53,7 +52,7 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
   DateTime? _lastScanTime;
   StreamSubscription<dynamic>? _sensorSubscription;
   Map<String, dynamic> _sensorData = {};
-  String _deviceModel = '—';\n  StreamSubscription<dynamic>? _sensorSubscription;\n  Map<String, dynamic> _sensorData = {};\n  String _deviceModel = '—';
+  String _deviceModel = '—';
 
   @override
   void initState() {
