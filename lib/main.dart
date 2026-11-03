@@ -145,16 +145,6 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
     );
   }
 
-  Widget _sensorLine(String label, dynamic value) {
-    String format(dynamic v) {
-      if (v == null) return 'Waiting for sensor…';
-      if (v is List) return v.map((x) => x is num ? x.toStringAsFixed(2) : x.toString()).join(', ');
-      if (v is num) return v.toStringAsFixed(2);
-      return v.toString();
-    }
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)));
-  }
-
   Widget _field(String label, TextEditingController controller) {
     return SizedBox(
       width: 220,
