@@ -13,13 +13,18 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import io.flutter.plugin.common.EventChannel
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterActivity(), SensorEventListener {
     private val channelName = "wifi_fingerprint/scanner"
     private val permissionRequestCode = 4101
     private var pendingScanResult: MethodChannel.Result? = null
@@ -28,6 +33,10 @@ class MainActivity : FlutterActivity() {
     private lateinit var wifiManager: WifiManager
     private lateinit var methodChannel: MethodChannel
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var sensorManager: SensorManager
+    private var sensorSink: EventChannel.EventSink? = null
+    private val sensorValues = mutableMapOf<String, FloatArray>()
+    private var sensorsRegistered = false
 
     private val scanTimeout = Runnable {
         finishScan(resultsUpdated = false, timedOut = true)
@@ -45,11 +54,16 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "wifi_fingerprint/sensors").setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { sensorSink = events; registerSensors() }
+            override fun onCancel(arguments: Any?) { sensorSink = null; unregisterSensors() }
+        })
         methodChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "scanWifi" -> scanWifi(result)
@@ -156,6 +170,31 @@ class MainActivity : FlutterActivity() {
         receiverRegistered = false
     }
 
+    private fun registerSensors() {
+        if (sensorsRegistered) return
+        listOf(Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD).forEach { type ->
+            sensorManager.getDefaultSensor(type)?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        }
+        sensorsRegistered = true
+    }
+    private fun unregisterSensors() { if (sensorsRegistered) { sensorManager.unregisterListener(this); sensorsRegistered = false } }
+    override fun onSensorChanged(event: SensorEvent) {
+        val key = when (event.sensor.type) { Sensor.TYPE_ACCELEROMETER -> "accelerometer"; Sensor.TYPE_GYROSCOPE -> "gyroscope"; Sensor.TYPE_MAGNETIC_FIELD -> "magnetometer"; else -> return }
+        sensorValues[key] = event.values.copyOf()
+        val a = sensorValues["accelerometer"]; val m = sensorValues["magnetometer"]
+        var heading: Float? = null; var orientation: List<Float>? = null
+        if (a != null && m != null) {
+            val r = FloatArray(9); val i = FloatArray(9)
+            if (SensorManager.getRotationMatrix(r, i, a, m)) {
+                val angles = FloatArray(3); SensorManager.getOrientation(r, angles)
+                heading = (Math.toDegrees(angles[0].toDouble()).toFloat() + 360f) % 360f
+                orientation = angles.map { Math.toDegrees(it.toDouble()).toFloat() }
+            }
+        }
+        sensorSink?.success(mapOf("sensor" to key, "timestampNs" to event.timestamp, "elapsedRealtimeNs" to SystemClock.elapsedRealtimeNanos(), "values" to event.values.toList(), "accelerometer" to sensorValues["accelerometer"]?.toList(), "gyroscope" to sensorValues["gyroscope"]?.toList(), "magnetometer" to sensorValues["magnetometer"]?.toList(), "headingDegrees" to heading, "orientationDegrees" to orientation, "deviceModel" to (Build.MANUFACTURER + " " + Build.MODEL)))
+    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
     private fun hasLocationPermission(): Boolean =
         ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
@@ -184,6 +223,7 @@ class MainActivity : FlutterActivity() {
         handler.removeCallbacks(scanTimeout)
         unregisterScanReceiver()
         pendingScanResult = null
+        unregisterSensors()
         super.onDestroy()
     }
 }
