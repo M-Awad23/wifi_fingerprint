@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';\nimport 'dart:async';
+import 'package:flutter/services.dart';
+import 'dart:async';
+import 'dart:async';
 
 void main() => runApp(const WiFiFingerprintApp());
 
@@ -37,8 +39,8 @@ class SurveyHomePage extends StatefulWidget {
 }
 
 class _SurveyHomePageState extends State<SurveyHomePage> {
-  static const MethodChannel _wifiChannel =
-      MethodChannel('wifi_fingerprint/scanner');
+  static const MethodChannel _wifiChannel = MethodChannel('wifi_fingerprint/scanner');
+  static const EventChannel _sensorChannel = EventChannel('wifi_fingerprint/sensors');
 
   final _sessionController = TextEditingController(text: 'Test Session');
   final _buildingController = TextEditingController();
@@ -48,10 +50,27 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
   bool _isSurveying = false;
   bool _isScanning = false;
   int _scanCount = 0;
-  DateTime? _lastScanTime;\n  StreamSubscription<dynamic>? _sensorSubscription;\n  Map<String, dynamic> _sensorData = {};\n  String _deviceModel = '—';
+  DateTime? _lastScanTime;
+  StreamSubscription<dynamic>? _sensorSubscription;
+  Map<String, dynamic> _sensorData = {};
+  String _deviceModel = '—';\n  StreamSubscription<dynamic>? _sensorSubscription;\n  Map<String, dynamic> _sensorData = {};\n  String _deviceModel = '—';
+
+  @override
+  void initState() {
+    super.initState();
+    _sensorSubscription = _sensorChannel.receiveBroadcastStream().listen((event) {
+      if (!mounted) return;
+      final data = Map<String, dynamic>.from(event as Map);
+      setState(() {
+        _sensorData = data;
+        _deviceModel = data['deviceModel']?.toString() ?? _deviceModel;
+      });
+    }, onError: (_) {});
+  }
 
   @override
   void dispose() {
+    _sensorSubscription?.cancel();
     _sessionController.dispose();
     _buildingController.dispose();
     _locationController.dispose();
@@ -62,11 +81,12 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
     setState(() => _isScanning = true);
 
     try {
-      final result =
-          await _wifiChannel.invokeMethod<List<dynamic>>('scanWifi');
-      final accessPoints = (result ?? []).map((item) {
-        return Map<String, dynamic>.from(item as Map);
-      }).toList();
+      final result = await _wifiChannel.invokeMethod<Map<dynamic, dynamic>>('scanWifi');
+      if (result == null || result['isFresh'] != true) {
+        throw PlatformException(code: 'STALE_SCAN_RESULTS', message: 'No fresh scan data received.');
+      }
+      final rawAps = result['accessPoints'] as List<dynamic>? ?? [];
+      final accessPoints = rawAps.map((item) => Map<String, dynamic>.from(item as Map)).toList();
 
       if (!mounted) return;
       setState(() {
@@ -124,6 +144,16 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)),
     );
+  }
+
+  Widget _sensorLine(String label, dynamic value) {
+    String format(dynamic v) {
+      if (v == null) return 'Waiting for sensor…';
+      if (v is List) return v.map((x) => x is num ? x.toStringAsFixed(2) : x.toString()).join(', ');
+      if (v is num) return v.toStringAsFixed(2);
+      return v.toString();
+    }
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)));
   }
 
   Widget _field(String label, TextEditingController controller) {
@@ -185,6 +215,15 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
                   style: const TextStyle(fontSize: 13)),
             ],
           ),
+                    const Divider(height: 20),
+          const Text('Motion sensors', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          Text('Device: $_deviceModel', style: const TextStyle(fontSize: 12)),
+          _sensorLine('Accelerometer (m/s²)', _sensorData['accelerometer']),
+          _sensorLine('Gyroscope (rad/s)', _sensorData['gyroscope']),
+          _sensorLine('Magnetometer (µT)', _sensorData['magnetometer']),
+          _sensorLine('Heading (°)', _sensorData['headingDegrees']),
+          _sensorLine('Orientation (°)', _sensorData['orientationDegrees']),
+          _sensorLine('Sensor timestamp (ns)', _sensorData['timestampNs']),
           const Divider(height: 20),
           Row(
             children: [
