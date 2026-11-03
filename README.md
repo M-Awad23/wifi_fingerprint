@@ -1,17 +1,30 @@
-# wifi_fingerprint
+# Wi-Fi Fingerprint Indoor Positioning
 
-A new Flutter project.
+A multimodal indoor positioning project built around Wi-Fi fingerprinting, pedestrian dead reckoning (PDR), magnetic sensing, and an indoor-map positioning overlay.
 
-## Getting Started
+## Project goal
 
-This project is a starting point for a Flutter application.
+Collect labelled Wi-Fi and phone-sensor observations, use them to develop and evaluate indoor localization methods, and ultimately display a user's estimated real-time position on the correct indoor floor map.
 
-A few resources to get you started if this is your first Flutter project:
+The project roadmap includes:
+- Wi-Fi fingerprint collection and KNN/WKNN localization.
+- Accelerometer and gyroscope collection for PDR.
+- Magnetometer collection and magnetic fingerprinting.
+- Sensor fusion to reduce drift and improve location estimates.
+- ASP.NET Core APIs and SQL Server for central dataset management.
+- Flutter indoor-map rendering with a live position marker.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Current implementation
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The repository currently contains a Flutter survey UI, an Android native Wi-Fi scanning method channel, and a starter ASP.NET Core API project. The backend is not yet the fingerprint-data API, and durable multimodal storage, localization algorithms, sensor fusion, and the live map layer remain planned work.
+
+## Documentation
+
+The main source of truth for the system design and roadmap is:
+
+- **[Living Project Plan](docs/PROJECT_PLAN.md)** — architecture, phase-by-phase implementation plan, sensor/data requirements, proposed database model, map-team integration contract, coordinate conventions, evaluation strategy, open decisions, and change log.
+
+## Current priority
+
+Complete and verify reliable Wi-Fi capture on a physical Android phone, then add timestamped accelerometer, gyroscope, and magnetometer collection with durable local storage. Coordinate conventions should be agreed with the map-design team before large-scale fingerprint surveying begins.
+
