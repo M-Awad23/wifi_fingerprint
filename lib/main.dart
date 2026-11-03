@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart';\nimport 'dart:async';
 
 void main() => runApp(const WiFiFingerprintApp());
 
@@ -48,7 +48,7 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
   bool _isSurveying = false;
   bool _isScanning = false;
   int _scanCount = 0;
-  DateTime? _lastScanTime;
+  DateTime? _lastScanTime;\n  StreamSubscription<dynamic>? _sensorSubscription;\n  Map<String, dynamic> _sensorData = {};\n  String _deviceModel = '—';
 
   @override
   void dispose() {
@@ -111,6 +111,19 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
   String _timeLabel(DateTime? time) {
     if (time == null) return '—';
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+  }
+
+  Widget _sensorLine(String label, dynamic value) {
+    String format(dynamic v) {
+      if (v == null) return 'Waiting for sensor…';
+      if (v is List) return v.map((x) => x is num ? x.toStringAsFixed(2) : x.toString()).join(', ');
+      if (v is num) return v.toStringAsFixed(2);
+      return v.toString();
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)),
+    );
   }
 
   Widget _field(String label, TextEditingController controller) {
