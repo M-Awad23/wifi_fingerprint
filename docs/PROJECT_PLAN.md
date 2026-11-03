@@ -1,35 +1,71 @@
-# Wi-Fi Fingerprint Indoor Positioning — Living Project Document
+# Wi-Fi Fingerprint Indoor Mapping and Positioning — Living Project Document
 
-> **Status:** Working project plan and integration specification  
+> **Status:** Working product vision, architecture and implementation plan  
 > **Repository:** [M-Awad23/wifi_fingerprint](https://github.com/M-Awad23/wifi_fingerprint)  
 > **Last documented:** 2026-11-03  
-> **Purpose:** Keep the team aligned on what we are building, how the data will be collected and stored, how indoor positioning will work, and how the positioning output will be displayed on the indoor maps produced by the map team.
+> **Purpose:** Maintain the shared source of truth for an application in which users create indoor maps and then use a multimodal positioning system to locate themselves on those maps.
 
-This document is intentionally a **living document**. Update the status, decisions, milestones, schemas, and open questions whenever implementation or team agreements change. Planned features are labelled as planned; their inclusion here does not mean they are already implemented.
-
----
-
-## 1. Project vision
-
-Build an indoor positioning system that estimates a phone user's location inside a building and displays that location as a live marker on an indoor floor map.
-
-The system will use multiple sources of information:
-
-1. **Wi-Fi fingerprinting** — identifies locations from nearby access points and their received signal strengths (RSSI).
-2. **Pedestrian dead reckoning (PDR)** — estimates movement between reference observations using phone motion sensors.
-3. **Magnetic fingerprinting** — uses local magnetic-field patterns to help recognize places and distinguish areas that may look similar to Wi-Fi.
-4. **Sensor fusion** — combines the above estimates to produce a more stable position.
-5. **Indoor map integration** — transforms the estimated position into the map's coordinate system and renders a moving user marker on the correct floor.
-
-The current application is primarily the **data-collection foundation**. The complete real-time positioning product is a later milestone.
-
-### Intended end-to-end result
-
-A user opens the app, selects a building and floor, and sees their approximate position on the indoor map. As they walk, the marker moves with them. Wi-Fi observations periodically correct accumulated movement error; PDR tracks movement between Wi-Fi observations; magnetic observations can provide additional location cues. The app should also be able to show the estimated floor and a confidence/quality indicator.
+This is a living document. It distinguishes the current implementation from planned capabilities. A feature described here is not considered implemented until the code and tests demonstrate it.
 
 ---
 
-## 2. Current repository and implementation snapshot
+## 1. Product vision and end goal
+
+Build a **self-contained indoor mapping and positioning application**. A user should be able to create or import a map of an indoor environment, save it with a well-defined coordinate frame, collect positioning fingerprints against it, and later see their estimated live position on that same map.
+
+The application has two central modes:
+
+1. **Mapping mode:** a user creates a map of a building/floor using a supported mapping workflow, reviews it, and saves the map and its coordinate metadata.
+2. **Positioning mode:** the app uses Wi-Fi fingerprinting, pedestrian dead reckoning (PDR), and magnetic sensing to estimate the phone's location and display it on the selected saved map.
+
+These are two capabilities of the same product, not two disconnected applications. The map is the spatial reference; the positioning engine estimates a point within that reference.
+
+### Product principles
+
+- **User-created maps are a first-class feature.** The long-term product must not require a separate team to provide every floor plan.
+- **Mapping and positioning are separate layers.** The positioning engine must not depend on the particular technology used to create a map.
+- **One canonical map contract.** Every supported map-creation method must produce a saved map package with stable IDs, geometry/assets, coordinate metadata and versioning.
+- **External maps remain supported.** Importing a floor plan created elsewhere is a useful fallback and interoperability feature, not the only intended workflow.
+- **Positioning is map-relative.** Survey reference points and live position estimates must use the coordinate frame associated with the selected map version.
+- **Offline-first runtime where practical.** A downloaded map and its positioning dataset should be usable without a network connection.
+
+The product is more than a Wi-Fi scanner, a fingerprint database, or a map viewer. Its end-to-end outcome is **user-created indoor maps with a positioning layer operating on top of them**.
+
+---
+
+## 2. Mapping versus positioning
+
+These terms describe different jobs and should remain distinct in the code and architecture.
+
+### Mapping
+
+Mapping creates a spatial representation of the environment. Depending on the chosen method, it may produce a 2D floor layout, a 3D/visual representation, or both. It also establishes the map's coordinate frame.
+
+Possible creation methods include:
+
+- **LiDAR + SLAM:** use a mobile robot or other LiDAR platform to build a 2D occupancy map or richer spatial representation. A ROS 2 mapping pipeline may be reusable if it can export a stable map and coordinate metadata.
+- **Phone camera + visual/AR mapping:** use visual tracking/SLAM to map and track motion. Results depend on camera, lighting, visual texture, device capability and tracking quality; a usable 2D floor plan may require extraction and cleanup.
+- **Depth-capable phone scanning:** use depth sensing where the device supports it. Device availability varies, and scans may still need processing and review.
+- **Manual map creation or calibration:** let a user import an image/vector floor plan, draw or mark geometry, set scale/origin/orientation, and save it.
+- **External map import:** accept a map generated by another team or tool, provided it can be converted to the app's canonical map package.
+
+These methods are alternatives or complementary tools. We should not assume that Wi-Fi, PDR, or a magnetometer alone can infer a reliable architectural floor plan. PDR can trace a path but accumulates drift; Wi-Fi fingerprints identify signal patterns at locations but do not directly reveal walls. Mapping needs a method capable of producing spatial geometry.
+
+### Positioning
+
+Positioning estimates where the phone is within an already-created map:
+
+- Wi-Fi fingerprinting matches live access-point observations to labelled reference observations.
+- PDR estimates movement from motion sensors between absolute or corrective observations.
+- Magnetic fingerprinting compares local magnetic signatures with surveyed signatures.
+- Sensor fusion combines these sources and manages their uncertainty.
+- The map renderer converts the estimated map coordinates to screen coordinates and draws the live marker.
+
+A saved map does not automatically provide positioning data. A map may need a separate survey/calibration pass in which Wi-Fi and magnetic fingerprints are collected at known map coordinates.
+
+---
+
+## 3. Current repository and implementation snapshot
 
 The repository currently contains:
 
@@ -37,527 +73,529 @@ The repository currently contains:
 - An Android native implementation at `android/app/src/main/kotlin/com/example/wifi_fingerprint/MainActivity.kt`.
 - A Flutter-to-Android method channel named `wifi_fingerprint/scanner`, with a `scanWifi` method.
 - A starter ASP.NET Core API project under `backend/WifiFingerprint.Api/`.
-- A starter README that is to be replaced with project-specific documentation.
 
-The Flutter screen currently presents session/building/location fields, survey controls, scan status, and a list of Wi-Fi access-point results. The Android implementation uses Android's Wi-Fi APIs and returns fields including SSID, BSSID, RSSI, frequency, and scan timestamp.
+The Flutter survey UI and Android Wi-Fi scanning integration are the current foundation. The backend is still a starter API, not yet the fingerprint/map data API.
 
-**Important current limitations:** the survey controls and scan display are not yet a complete durable collection workflow. The current UI state shown in the app is not, by itself, a reliable saved dataset. The backend project currently contains the default weather-forecast example and is not yet a fingerprint-data API. This document describes the intended architecture, not completed functionality.
+**Not yet implemented based on the repository snapshot documented here:** full map authoring, map import/calibration workflow, durable map package storage, durable multimodal survey storage, motion/magnetic collection, positioning algorithms, sensor fusion, and live map overlay. The roadmap below is intended architecture, not a claim these features already exist.
 
 ### Status summary
 
 | Capability | Status | Notes |
 |---|---|---|
-| Flutter app scaffold and survey screen | Present | UI exists in `lib/main.dart` |
-| Flutter-to-Android Wi-Fi method channel | Present | `wifi_fingerprint/scanner` |
-| Native Android Wi-Fi scan results | Present | Android permissions, Location services, and scan throttling affect results |
-| Session and reference-location metadata | UI fields present | Must be persisted with each collection session/point |
-| Durable local dataset storage | Planned | Must survive app closure and support export/retry |
-| Accelerometer and gyroscope collection | Planned | Raw timestamped sensor samples |
+| Flutter app scaffold and survey screen | Present | Existing collection UI |
+| Android Wi-Fi scan method channel | Present | `wifi_fingerprint/scanner` |
+| Native Android Wi-Fi scan results | Present | Android permission/service/throttling constraints apply |
+| User map creation workflow | Planned | Core product capability |
+| Manual floor-plan import and calibration | Planned | Useful first map-authoring method |
+| LiDAR/SLAM map import | Planned | Mapping method to evaluate; not assumed implemented |
+| Phone AR/visual map creation | Future option | Evaluate after initial product workflow |
+| Canonical map package and coordinate metadata | Planned | Required shared contract |
+| Accelerometer and gyroscope collection | Planned | Raw timestamped samples |
 | Magnetometer collection | Planned | Raw XYZ values and derived magnitude |
-| PDR processing | Planned | Step detection, heading, displacement and drift handling |
-| Magnetic fingerprint localization | Planned | Requires labelled calibration data |
-| SQL Server persistence/API | Planned | Backend is currently a starter API |
-| Wi-Fi KNN/WKNN localization | Planned | Train/evaluate from labelled fingerprints |
-| Sensor fusion | Planned | Combine Wi-Fi, PDR and magnetic estimates |
-| Indoor map live overlay | Planned | Depends on map-team assets and shared coordinates |
+| Durable local map and survey storage | Planned | Offline-first |
+| SQL Server persistence/API | Planned | Backend currently starter |
+| Wi-Fi KNN/WKNN localization | Planned | Needs labelled fingerprints |
+| PDR and magnetic localization | Planned | Needs sensor data and calibration |
+| Sensor fusion | Planned | After baselines are evaluated |
+| Live positioning marker on user-created map | Planned | Core final experience |
 
 ---
 
-## 3. System architecture
+## 4. High-level architecture
 
-The system has two major operating workflows: **survey/collection** and **live positioning**.
+Keep the following modules logically independent, even if they initially run in one Flutter application:
 
-### 3.1 Survey and data-collection workflow
+1. **Map authoring/import layer:** creates or imports a map and establishes its coordinate frame.
+2. **Map package and management layer:** validates, versions, saves, loads and exports maps.
+3. **Survey/data-collection layer:** associates Wi-Fi and sensor observations with map coordinates.
+4. **Positioning layer:** calculates a location using Wi-Fi, PDR and magnetic evidence.
+5. **Fusion and quality layer:** combines estimates and reports uncertainty/quality.
+6. **Map renderer:** displays the saved map and transforms position updates into screen coordinates.
+7. **Backend/data layer:** synchronizes maps, metadata, surveys, datasets and model/configuration artefacts.
+
+### Mapping workflow
 
 ```text
-Flutter collection app
-    |
-    +--> Android Wi-Fi scan API
-    |       +--> BSSID, SSID, RSSI, frequency, scan timestamp
-    |
-    +--> Android motion sensor APIs
-    |       +--> Accelerometer XYZ
-    |       +--> Gyroscope XYZ
-    |       +--> Magnetometer XYZ
-    |
-    +--> Survey metadata
-            +--> Session, building, floor, reference point,
-                 coordinate, device and collection time
-    |
-    v
-Local durable storage on phone
-    |
-    +--> Review / validate / export / retry upload
-    |
-    v
-ASP.NET Core API
-    |
-    v
-SQL Server dataset
+User chooses mapping method
+        |
+        +--> LiDAR / SLAM mapping
+        +--> Phone AR / visual mapping (future)
+        +--> Manual floor plan creation/import
+        +--> External map import
+        |
+        v
+Review, clean up and calibrate geometry
+        |
+        v
+Create canonical map package
+  - buildingId / floorId / mapVersion
+  - map asset(s) and/or geometry
+  - coordinate frame and units
+  - origin, axes, scale and transform
+  - optional walkable areas / obstacles
+        |
+        v
+Save locally; optionally sync to backend
 ```
 
-### 3.2 Live positioning workflow
+### Survey workflow
 
 ```text
-Phone sensors + periodic Wi-Fi scans
-             |
-             v
+User selects a saved map and floor
+        |
+        v
+Choose known point or start a trajectory
+        |
+        +--> Wi-Fi scan observations
+        +--> Accelerometer / gyroscope samples
+        +--> Magnetometer samples
+        +--> Reference coordinates / checkpoints
+        |
+        v
+Local durable dataset
+        |
+        v
+Review / export / upload / validate
+```
+
+### Live positioning workflow
+
+```text
+Saved map + positioning dataset
+              |
+Phone Wi-Fi + motion + magnetic sensors
+              |
        Sensor preprocessing
-             |
-      +------+------+
-      |             |
-      v             v
- Wi-Fi matcher    PDR engine
-      |             |
-      +------+------+
-             |
-     Magnetic matcher
-             |
-             v
-       Sensor fusion
-             |
-             v
- Position estimate:
- building, floor, x, y, heading,
- confidence, timestamp
-             |
-             v
- Flutter indoor map renderer
-             |
-             v
- Live user marker on the map
+              |
+   +----------+-----------+
+   |          |           |
+ Wi-Fi       PDR       Magnetic
+ matcher    tracker     matcher
+   |          |           |
+   +----------+-----------+
+              |
+        Sensor fusion
+              |
+  position (building, floor, x, y,
+   heading, quality, timestamp)
+              |
+       Map coordinate transform
+              |
+       Flutter map renderer
+              |
+       Live user marker
 ```
 
-**Preferred runtime direction:** perform time-sensitive positioning on the phone where practical. The API and SQL Server should manage datasets, map metadata, model/configuration distribution, and optional telemetry. A network round trip should not be required for every sensor sample or every marker update. Offline operation should remain possible after the relevant maps and positioning data are available locally.
+**Runtime principle:** the positioning engine publishes a renderer-independent position estimate in the map's canonical coordinate frame. The map renderer does not consume raw sensor readings and does not need to know whether the map came from LiDAR, AR, manual drawing or import.
 
 ---
 
-## 4. Phase plan
+## 5. Canonical map package and coordinate contract
 
-The phases are a roadmap, not a claim that all listed work is finished. Some phases can overlap when their interfaces are agreed.
+This is one of the most important design decisions. Mapping methods may produce very different source files, but downstream survey and positioning components need a consistent representation.
 
-### Phase 1 — Multimodal collection application
+### Required map metadata
 
-**Goal:** collect correctly labelled, timestamped Wi-Fi and motion data using a physical Android phone.
+Each saved map/floor should have:
 
-#### 1A. Wi-Fi observations
+- Stable `buildingId`, `floorId`, and `mapId`.
+- `mapVersion` or immutable version identifier.
+- A display name and optional description.
+- Source/mapping method (e.g. manual, imported, LiDAR/SLAM, AR).
+- Creation/update timestamps and creator metadata where appropriate.
+- Map asset references (raster, vector, occupancy grid, or supported combination).
+- Canonical coordinate unit (metres).
+- Coordinate origin and axis orientation.
+- Map dimensions or geometry bounds.
+- Transform between canonical map coordinates and rendered asset coordinates.
+- Optional walkable regions, walls/obstacles and navigation graph.
+- Validation state and notes where map review is required.
 
-Capture for each access point returned by Android:
+### Canonical coordinates
 
-- SSID (may be hidden or empty)
-- BSSID (access-point identifier; preserve exact value)
-- RSSI in dBm
-- Frequency in MHz
-- Android scan timestamp where available
-- App receipt timestamp (UTC)
-- Scan/session identifier
+Recommended initial convention:
 
-A fingerprint observation consists of the set of access-point measurements observed during one scan at a known reference location. A single scan can include many access points; therefore, model the scan and its AP measurements as separate records.
+- Use **metres** for indoor X/Y.
+- Define one explicit origin `(0,0)` for each floor.
+- Document the direction of positive X and positive Y.
+- Store floor as a separate stable `floorId`.
+- Document heading units and reference direction.
+- Store coordinate-frame/map-version identity alongside every surveyed point and position estimate.
 
-#### 1B. Motion sensors
+Do not assume that a pixel coordinate, SLAM grid coordinate, AR world coordinate, compass heading and app coordinate are interchangeable. A conversion must be computed from explicit metadata/control points.
 
-Collect raw, timestamped readings from:
+For a simple axis-aligned raster map, a transform could be:
 
-- **Accelerometer:** acceleration along X, Y and Z axes. Document whether values include gravity or are gravity-removed.
-- **Gyroscope:** angular velocity around X, Y and Z axes.
-- **Magnetometer:** magnetic field along X, Y and Z axes (typically reported in microtesla, subject to platform/API details).
+```text
+pixelX = originPixelX + xMetres * pixelsPerMetreX
+pixelY = originPixelY - yMetres * pixelsPerMetreY
+```
 
-Record sensor timestamp, app receipt timestamp if useful, sensor type, sampling interval/rate, and device/session context. Keep raw readings so algorithms can be changed and evaluated later.
+The sign and scale must be derived from the actual map calibration. For rotated or skewed maps, use an affine transform or a suitable format-specific transform. For occupancy grids, also preserve resolution, origin pose, dimensions and cell convention.
 
-Derived values may include:
+### Map versioning rule
 
-- Acceleration magnitude.
-- Magnetic-field magnitude: `sqrt(mx² + my² + mz²)`.
-- Step events and step timestamps.
-- Heading estimate and heading quality.
-- PDR displacement/trajectory segments.
+A new geometry/calibration revision must create a new map version. Survey observations must retain the map version and coordinate frame they were collected against. Do not silently reinterpret old coordinates when a map changes. Define an explicit migration/recalibration process when required.
 
-Do not discard raw sensor data just because derived values are available.
+### Illustrative map package metadata
 
-#### 1C. Collection modes
-
-The app should eventually support at least two clearly distinct modes:
-
-**Reference-point survey mode**
-- Surveyor chooses building and floor.
-- Surveyor chooses or creates a labelled reference point.
-- Point has a known map coordinate or a stable survey identifier that can later be mapped to a coordinate.
-- Capture repeated Wi-Fi scans and sensor samples at the point.
-- Allow notes such as device orientation, approximate location, environment, and issues.
-
-**Walking/trajectory mode**
-- Surveyor starts a route from a known start point.
-- Record continuous sensor samples and periodic Wi-Fi observations.
-- Record route/ground-truth markers when available (turns, checkpoints, endpoints).
-- Associate the trajectory with its building and floor.
-- Support pause/resume/stop and preserve the session if the app is interrupted.
-
-Reference-point mode builds labelled fingerprints. Walking mode is needed to evaluate PDR and sensor fusion.
-
-#### 1D. Collection quality and reliability
-
-- Use a consistent time base. Prefer UTC wall-clock timestamps for cross-record association and monotonic sensor timestamps for sample ordering/intervals.
-- Keep original Android sensor timestamps; do not replace them with only the UI clock.
-- Handle missing sensors, permission denial, Wi-Fi disabled, Location services disabled, throttled scans, and empty scan results explicitly.
-- Avoid treating an old cached Wi-Fi result as a fresh measurement without marking it.
-- Store data locally before upload. Upload should be retryable and should not create duplicate records.
-- Include app version and device model/OS information where useful for reproducibility.
-- Provide a session review/export path so collected data can be checked before it is used for training.
-
-**Phase 1 completion criteria**
-- Real Wi-Fi scans can be captured on supported Android devices.
-- Accelerometer, gyroscope and magnetometer samples can be captured with timestamps.
-- A scan/session is linked to a building, floor, and reference point or trajectory.
-- Data survives application restart and can be exported or uploaded.
-- A small pilot dataset can be inspected and validated.
-
-### Phase 2 — Dataset model, backend and preparation
-
-**Goal:** store, validate, query and prepare survey datasets.
-
-Recommended initial logical entities (physical table names can change):
-
-| Entity/table | Purpose |
-|---|---|
-| `Buildings` | Building identity and metadata |
-| `Floors` | Floor identity and map/coordinate metadata |
-| `SurveySessions` | One collection visit/run, device and operator metadata |
-| `SurveyLocations` | Labelled reference point with floor and known map coordinate |
-| `WiFiFingerprintScans` | One Wi-Fi scan event at a time |
-| `WiFiAccessPointMeasurements` | One row per AP observed in a scan |
-| `SensorReadings` | Timestamped accelerometer, gyroscope and magnetometer samples |
-| `TrajectorySegments` | Walking session ranges and start/end references |
-| `GroundTruthPoints` | Manually verified checkpoints/coordinates for evaluation |
-| `MapAssets` | Map file/version and its coordinate metadata |
-
-#### Suggested relationships
-
-- One building has many floors.
-- One floor has many survey locations.
-- One survey session belongs to a building and may cover one or more floors.
-- One survey location can have many Wi-Fi scans.
-- One Wi-Fi scan has many AP measurements.
-- One survey session has many sensor readings and trajectory segments.
-- Ground-truth points are associated with a session and a floor/location.
-
-#### Example record structure
-
-A Wi-Fi scan should be a parent record with AP measurement children, rather than one repeated row containing a variable number of APs.
-
-Example conceptual JSON:
+This is an example shape, not an implemented DTO or final schema:
 
 ```json
 {
-  "sessionId": "session-guid",
+  "mapId": "map-guid",
   "buildingId": "building-a",
   "floorId": "floor-1",
-  "referencePointId": "point-001",
-  "capturedAtUtc": "2026-11-03T10:15:30.000Z",
-  "device": {
-    "model": "Android device model",
-    "osVersion": "Android version"
+  "mapVersion": "1",
+  "name": "First Floor",
+  "source": {
+    "method": "lidar-slam",
+    "sourceFormat": "occupancy-grid"
   },
-  "accessPoints": [
-    {
-      "bssid": "AA:BB:CC:DD:EE:FF",
-      "ssid": "Example WiFi",
-      "rssiDbm": -61,
-      "frequencyMhz": 2412
-    }
-  ]
+  "coordinateFrame": {
+    "unit": "metre",
+    "origin": { "x": 0.0, "y": 0.0 },
+    "xAxis": "east",
+    "yAxis": "north",
+    "headingConvention": "degrees-clockwise-from-positive-y"
+  },
+  "asset": {
+    "format": "pgm-plus-yaml",
+    "path": "maps/first-floor/"
+  },
+  "createdAtUtc": "2026-11-03T10:15:30Z"
 }
 ```
 
-This is an illustrative payload, not an existing API contract. Actual API DTOs and schema must be versioned and documented when implemented.
+The actual package should support the selected map formats without tying the positioning algorithm to one file extension.
 
-#### SQL Server: what is stored?
+---
 
-The database stores structured records (rows/columns), not a single JSON file per scan. A scan record is stored in a scan table, and each observed access point is stored as a related row in a measurements table. Sensor samples are separate timestamped rows or appropriately batched records. JSON may still be used as an API transfer format or for export, but it is not the only storage model.
+## 6. Phase plan
 
-Large raw sensor collections can become high-volume. During implementation, measure sample rates and dataset size, then decide whether to store individual rows, upload compressed batches, or use a hybrid. Preserve a lossless export format regardless.
+Phases are a roadmap. They may overlap, but interfaces and data contracts should be agreed before dependent work is scaled.
 
-#### How the stored scans are used later
+### Phase 1 — Reliable multimodal collection foundation
 
-1. Query scans by building, floor and reference point.
-2. Convert each scan into a feature representation keyed by BSSID with RSSI values.
-3. Align scans that see different access-point sets (missing APs need a consistent policy).
-4. Train/calibrate and validate KNN/WKNN or other fingerprint-matching methods.
-5. During live operation, compare the phone's current Wi-Fi scan with stored labelled fingerprints.
-6. Return an estimated map coordinate and quality/confidence information.
-7. Use new verified surveys to improve or recalibrate the fingerprint database.
+**Goal:** collect correctly labelled, timestamped observations on a physical Android phone.
 
-The original measurements remain the source dataset. Training features and model artefacts should be reproducible from them.
+#### Wi-Fi observations
 
-### Phase 3 — Wi-Fi fingerprint localization
+Capture for each AP returned by Android:
 
-**Goal:** estimate a user's position from a live Wi-Fi scan by comparing it with labelled survey fingerprints.
+- SSID (may be hidden/empty).
+- BSSID, preserving the exact identifier.
+- RSSI in dBm.
+- Frequency in MHz.
+- Original scan timestamp where available.
+- App receipt timestamp in UTC.
+- Session and scan identifiers.
 
-Initial algorithm candidates:
-- **K-Nearest Neighbors (KNN):** find the K most similar stored fingerprints and use their labels/coordinates.
-- **Weighted KNN (WKNN):** give closer matches greater influence when calculating the estimated coordinate.
+One scan is a parent event containing many AP measurements. Model scan events separately from AP observations.
 
-Implementation considerations:
-- Choose and document a distance metric.
-- Handle access points absent from either scan.
-- Normalize or calibrate RSSI carefully; avoid inventing signal values without recording the missing-data policy.
-- Test sensitivity to phone model, phone orientation, time of day, people, doors and environmental changes.
-- Use a validation set or held-out collection sessions. Do not evaluate only on the same scans used to build the reference database.
-- Report positioning error in metres, not only classification accuracy.
+#### Motion and magnetic sensors
 
-### Phase 4 — PDR and magnetic positioning
+Collect raw timestamped readings from:
 
-**PDR** estimates the path travelled from a known starting state:
+- Accelerometer XYZ; document whether gravity is included.
+- Gyroscope XYZ.
+- Magnetometer XYZ, with units as reported by the platform.
+
+Keep original platform sensor timestamps, sensor type, sampling information and device/session context. Derived values may include acceleration magnitude, magnetic magnitude, step events, heading and PDR displacement. Preserve the raw samples so algorithms can be revised.
+
+#### Collection modes
+
+**Reference-point survey mode**
+- User chooses building, floor and saved map version.
+- User selects or creates a known reference point with map coordinates.
+- App captures repeated Wi-Fi scans and sensor samples.
+- Record device orientation, notes and collection conditions where useful.
+
+**Walking/trajectory mode**
+- User starts from a known map coordinate.
+- App records continuous motion/magnetic samples and periodic Wi-Fi scans.
+- Checkpoints/ground-truth markers can be recorded along the route.
+- Pause/resume/stop must preserve the session if interrupted.
+
+#### Reliability requirements
+
+- Use UTC wall-clock timestamps for cross-record association and original monotonic/platform timestamps for sample timing.
+- Handle permission denial, missing sensors, Wi-Fi disabled, throttling and empty/stale scan results.
+- Store locally before upload; make uploads retryable and idempotent.
+- Include app version and device/OS metadata for reproducibility.
+- Review/export a pilot dataset before using it for model training.
+
+**Completion criteria:** real Wi-Fi and available sensor readings are captured, associated with a session and map version/reference coordinate, survive app restart, and can be inspected/exported.
+
+### Phase 2 — Map authoring/import MVP and map persistence
+
+**Goal:** let users create a usable map and save it in the canonical package.
+
+Recommended staged scope:
+
+1. **Start with manual image/vector import and calibration.** Allow a user to import a floor-plan image or supported vector file, set scale using a known distance, define origin and axes, identify the floor, and save a map package.
+2. **Add map editing/annotation.** Support reference points and, when needed, walls, walkable areas and landmarks. Keep editing separate from the positioning algorithm.
+3. **Add LiDAR/SLAM map ingestion.** Evaluate an export path from the available mapping platform (including ROS 2 2D LiDAR/SLAM if suitable). Convert the output and metadata to the canonical package.
+4. **Evaluate phone-based AR/visual mapping.** Treat as a later mapping provider; test reliability and how to derive a stable 2D floor representation before making it a required workflow.
+
+This order gives the project a map creation capability early without blocking progress on a complex phone-based SLAM feature. It also allows the positioning system to be developed and tested against calibrated imported maps while native map-generation integrations mature.
+
+Map authoring should provide a preview and validation step. Reject or flag missing scale, invalid geometry, undefined coordinate frame, duplicate IDs and unsupported assets.
+
+### Phase 3 — Dataset model, local storage, backend and preparation
+
+**Goal:** store and retrieve maps, survey data and positioning datasets reliably.
+
+Suggested logical entities (final schema may change):
+
+| Entity | Purpose |
+|---|---|
+| `Buildings` | Building identity and metadata |
+| `Floors` | Floor identity |
+| `Maps` / `MapVersions` | Canonical map identity, version and coordinate metadata |
+| `MapAssets` | Raster/vector/grid assets and file metadata |
+| `MapFeatures` | Optional walkable areas, walls, landmarks and graph elements |
+| `SurveySessions` | Collection run, device and operator metadata |
+| `SurveyLocations` | Reference points with map coordinates and map version |
+| `WiFiFingerprintScans` | One Wi-Fi scan event |
+| `WiFiAccessPointMeasurements` | One row per AP observed in a scan |
+| `SensorReadings` | Timestamped accelerometer, gyroscope and magnetometer samples |
+| `TrajectorySegments` | Walking ranges and start/end references |
+| `GroundTruthPoints` | Verified checkpoints/coordinates |
+
+Suggested relationships:
+- A building has many floors; a floor can have many map versions.
+- A map version belongs to one floor and has one coordinate-frame definition.
+- A map version has one or more assets and optional geometric features.
+- A survey session references the building, floor and map version used.
+- Survey locations and ground-truth points reference that same map version.
+- A Wi-Fi reference location has many scan events; each scan has many AP measurements.
+- A session has many sensor readings and trajectory segments.
+
+#### Storage format
+
+SQL Server stores structured records in tables. A scan is a row in the scan table and each AP measurement is a related row. Sensor samples are timestamped records or appropriately batched data. Map files such as PNG, SVG, GeoJSON, PGM/YAML or other formats should generally be stored as files/object assets, with metadata and references in SQL Server; do not put large binary map files into ordinary relational columns without a reason. JSON is suitable for API payloads and metadata, but it is not the only storage model.
+
+For high-volume sensor data, measure actual sample rates and storage needs before deciding between individual rows, compressed batches or a hybrid. Preserve a lossless export format.
+
+#### How Wi-Fi scans are used later
+
+1. Query scans by building, floor, map version and reference point.
+2. Convert scans into feature vectors keyed by BSSID and RSSI.
+3. Apply a consistent policy for APs missing from a scan.
+4. Train/calibrate and validate KNN/WKNN or another fingerprint matcher.
+5. Compare live scans against stored labelled fingerprints.
+6. Return an estimated coordinate in the same map version's coordinate frame.
+7. Use new verified surveys to improve the dataset while preserving provenance.
+
+### Phase 4 — Wi-Fi fingerprint localization
+
+**Goal:** estimate position from a live Wi-Fi scan.
+
+Initial candidates are KNN and WKNN. Decide distance metric, missing-AP treatment and normalization policy. Test across phone models, orientations, people/occupancy, doors, time and environmental changes. Use held-out sessions and report errors in metres; do not evaluate only on training scans.
+
+### Phase 5 — PDR and magnetic positioning
+
+**PDR**
 - Detect steps from acceleration patterns.
-- Estimate step length (initially a calibrated or simple model, later a user/device-adaptive model if justified).
-- Estimate heading using orientation/motion information, with careful handling of sensor coordinate frames and device orientation.
-- Update position from step length and heading.
-- Track uncertainty because step-length and heading errors accumulate over time.
+- Estimate step length using a calibrated baseline.
+- Estimate heading while handling device orientation and coordinate frames.
+- Update displacement from step length and heading.
+- Track uncertainty and drift.
 
-**Magnetic fingerprinting**:
-- Collect magnetic XYZ readings and magnitude at labelled positions and along trajectories.
-- Build spatial magnetic signatures from repeated observations.
-- Match live magnetic measurements/patterns to the surveyed magnetic dataset.
-- Treat magnetic readings as environment-dependent; moving metal objects, devices, doors and building changes can affect the field.
+**Magnetic fingerprinting**
+- Collect magnetic XYZ and magnitude at known map coordinates and along trajectories.
+- Build repeatable spatial signatures.
+- Match live readings/patterns against the surveyed data.
+- Account for changes from metal objects, devices, doors and building modifications.
 
-PDR and magnetic localization are not the same technique: PDR estimates movement from a starting point, while magnetic fingerprinting compares sensed field patterns with previously collected location data.
+PDR estimates movement from a starting state; magnetic fingerprinting matches measured field patterns to a location dataset. They are not interchangeable.
 
-### Phase 5 — Sensor fusion
+### Phase 6 — Sensor fusion
 
-**Goal:** combine Wi-Fi, PDR and magnetic evidence into one position estimate.
+Combine Wi-Fi corrections, PDR movement and magnetic location evidence into one estimate. Candidate methods include confidence-weighted correction, complementary filters, Kalman-family filters where assumptions are appropriate, or particle filtering. Choose after evaluating collected data and each independent baseline.
 
-Conceptual roles:
-- Wi-Fi provides absolute-ish location corrections when a useful scan is available.
-- PDR provides continuous relative movement between Wi-Fi observations but drifts over time.
-- Magnetic fingerprints may provide additional place recognition/correction where they are distinctive and stable.
+Track uncertainty. Do not call a score a calibrated probability unless it has been calibrated and tested.
 
-Possible approaches include complementary filtering, probabilistic filtering (e.g. Kalman-family methods where assumptions are appropriate), particle filtering, or confidence-weighted correction. Select an approach only after examining the collected data and measured error.
+### Phase 7 — Live positioning on user-created maps
 
-The fusion engine should track uncertainty. Do not treat a confidence value as a calibrated probability unless it has been calibrated and evaluated.
+**Goal:** render the position estimate on any valid map package, regardless of how it was created.
 
-### Phase 6 — Indoor map integration and real-time position layer
-
-**Goal:** display the estimated position on the floor maps produced by the map-design team.
-
-This is the key integration point between the positioning work and the mapping work.
-
-#### Map-team deliverables
-
-For each building/floor, the map team should provide:
-
-1. A map asset (preferably a structured vector format such as SVG/GeoJSON where practical; a raster PNG can also work).
-2. Stable building and floor identifiers.
-3. Map width/height and units.
-4. A defined coordinate system: origin, X direction, Y direction, axis orientation, and unit (preferably metres for the positioning interface).
-5. A known transformation between map coordinates and displayed pixels/vector coordinates.
-6. Walkable areas/obstacles if routing or map-constrained positioning is required.
-7. Optional navigation graph: nodes and walkable edges for pathfinding.
-8. A version identifier so survey data can be tied to the correct map revision.
-
-The positioning team must know how every surveyed reference point maps to this coordinate system. A label such as “Room 101” is not enough by itself; the reference point needs an explicit coordinate or a repeatable mapping process.
-
-#### Coordinate alignment contract
-
-Both teams must agree on one canonical coordinate convention before large-scale collection.
-
-Recommended convention:
-- Positioning coordinates are in **metres**.
-- Origin `(0, 0)` is a clearly marked point on each floor.
-- `+X` and `+Y` directions are defined in the floor metadata.
-- Floor is represented by a stable `floorId`, not inferred from Y/Z.
-- Heading convention is documented (e.g. degrees clockwise from map +Y/north); do not assume compass heading and map heading are identical.
-- Pixel conversion, if needed, is performed by the map renderer using the agreed transform.
-
-For a simple raster map, a coordinate-to-pixel transform may be expressed as:
-
-```text
-pixelX = originPixelX + (xMetres * pixelsPerMetreX)
-pixelY = originPixelY - (yMetres * pixelsPerMetreY)
-```
-
-The sign on Y depends on the image coordinate convention (image Y often increases downward). The actual transform must be derived from map metadata/control points, not guessed. For rotated, skewed or georeferenced maps, use an affine or appropriate vector transform instead of a simple scale.
-
-#### Shared live-position message
-
-The positioning engine should expose a stable, renderer-independent position object. Initial proposed JSON contract:
+Proposed position contract:
 
 ```json
 {
   "buildingId": "building-a",
   "floorId": "floor-1",
+  "mapId": "map-guid",
+  "mapVersion": "1",
   "x": 12.4,
   "y": 8.7,
   "headingDegrees": 95.0,
   "confidence": 0.92,
   "horizontalAccuracyMeters": 1.8,
-  "timestampUtc": "2026-11-03T10:15:30.000Z",
+  "timestampUtc": "2026-11-03T10:15:30Z",
   "source": "wifi+pdr+magnetic"
 }
 ```
 
-This is a proposed interface. Confirm heading convention, confidence semantics, accuracy calculation, units, and nullable fields before implementation. The interface must make it possible to distinguish a stale or low-quality fix from a fresh reliable one.
+This is an illustrative contract, not an implemented DTO. Confirm heading reference/direction, units, confidence semantics, accuracy calculation and nullable fields before implementation.
 
-#### Runtime integration sequence
+Runtime sequence:
+1. User selects a saved building/floor/map version.
+2. App loads the canonical map package and required positioning dataset.
+3. Sensors and Wi-Fi scans feed the positioning engine.
+4. Engine publishes `x/y` and associated map/version identity in canonical metres.
+5. Renderer applies that map package's transform and updates the marker.
+6. Marker heading and visual quality indicate orientation and uncertainty.
+7. Floor transitions follow an explicit policy and switch to the correct floor map.
 
-1. User selects a building and floor.
-2. App loads the matching map asset and map metadata.
-3. App obtains sensor samples and periodic Wi-Fi scans.
-4. Positioning engine calculates an estimate in the floor's canonical coordinate system.
-5. Engine publishes a position update through an in-process stream/callback (or another agreed interface).
-6. Flutter map renderer transforms `(x, y)` into map coordinates and draws the user marker.
-7. Marker orientation follows heading; visual treatment can reflect uncertainty/quality.
-8. If floor estimate changes, app switches to the corresponding floor map only after applying an agreed floor-transition policy.
+Start with an in-process stream/callback between positioning engine and renderer. Add server streaming only if another client/consumer needs it. The map renderer should accept map packages and position updates, not raw sensor streams.
 
-**Recommended first integration:** keep the positioning engine and map renderer in the same Flutter app and communicate through an in-process position stream. Add API/WebSocket transport only if another client or remote consumer actually needs live positions. Avoid sending every raw sensor sample to the map team or map renderer; the renderer needs position updates, not raw accelerometer events.
+### Phase 8 — Testing and evaluation
 
-#### Team responsibilities
+Evaluate mapping quality, positioning quality and their alignment separately.
 
-| Mapping team | Positioning/collection team |
-|---|---|
-| Produce floor map assets | Collect labelled Wi-Fi and sensor data |
-| Define building/floor IDs | Maintain matching building/floor IDs |
-| Define map coordinate origin, units and axes | Survey reference points in the same coordinate system |
-| Supply map dimensions and transforms | Output position in canonical map coordinates |
-| Provide walkable areas and optional routing graph | Provide position estimates, heading, time and quality |
-| Version map assets and metadata | Version datasets against map revisions |
+Mapping measures:
+- Geometric consistency and scale error at known control points.
+- Map completeness, drift/loop-closure issues where applicable.
+- Correct coordinate origin/axes and asset transform.
+- Human review/editing effort and map-generation time.
 
-Both teams must jointly test at surveyed control points. A marker that appears in the wrong room usually indicates a coordinate transform, origin, floor mapping, or stale-map mismatch—not necessarily a Wi-Fi algorithm problem.
-
-### Phase 7 — Testing and evaluation
-
-Evaluate each component independently and then the complete fused system.
-
-Recommended measures:
-- Mean positioning error (metres).
-- Median error and 90th-percentile error.
-- Percentage of estimates within agreed thresholds (e.g. 1 m, 2 m, 5 m).
-- Update frequency and end-to-end latency.
-- Time to first fix.
+Positioning measures:
+- Mean, median and 90th-percentile position error in metres.
+- Percentage of fixes within agreed thresholds.
+- Update rate, latency and time to first fix.
 - Floor detection accuracy.
 - PDR drift over route length/time.
-- Wi-Fi-only vs PDR-only vs magnetic-only vs fused performance.
-- Robustness across devices, orientations, occupancy levels and collection days.
+- Wi-Fi-only, PDR-only, magnetic-only and fused performance.
+- Robustness across devices, orientations, occupancy and collection days.
 - Battery and thermal impact.
 
-Testing should include stationary points, straight corridors, turns, rooms, corridor intersections, vertical transitions, and difficult areas with weak or similar Wi-Fi fingerprints.
+Test the complete system at independent surveyed control points. A marker in the wrong location may indicate a map transform/version mismatch rather than an algorithm failure.
 
 ---
 
-## 5. Proposed data and time conventions
+## 7. Map ownership and interoperability
 
-### Identifiers
+The product owns the user-facing map creation and map management experience. A separate map team is therefore **not a permanent product dependency**.
 
-Use stable IDs for buildings, floors, survey sessions, reference points, scans, and map versions. Prefer GUID/UUID identifiers for generated records. Human-readable labels are useful metadata but should not be primary keys.
+However, this does not mean mapping is trivial or that all mapping technologies must be built at once. A dedicated mapping workflow, reusable SLAM pipeline, map import, or external contributor may still be useful. The app should expose a stable map package interface so maps can come from different sources.
 
-### Timestamps
+Recommended responsibility split:
+- **Mapping capability:** creates/imports geometry and metadata, validates it, and saves a versioned map package.
+- **Positioning capability:** collects fingerprints against that map version and outputs location in its coordinate frame.
+- **Renderer:** loads the map and draws the estimate without depending on the map-generation method.
 
-Store:
-- UTC wall-clock timestamp for cross-system association.
-- Original monotonic sensor timestamp (or platform timestamp) for sample timing and integration.
-- Explicit units for timestamp fields.
-
-Never assume timestamps from different clocks can be subtracted safely without understanding their clock basis. Retain enough information to align sensor samples with Wi-Fi scans.
-
-### Coordinate values
-
-- Use floating-point metres for canonical indoor X/Y coordinates.
-- Keep the floor as a separate identifier.
-- Store the coordinate-system/map-version identifier with surveyed coordinates.
-- Do not silently move survey points when a map is revised; preserve the map version and define a migration/re-survey process.
-
-### Wi-Fi identity and privacy
-
-BSSID is used as an access-point identifier for fingerprint matching. Keep it in the dataset where required by the project. Avoid collecting unrelated personal data. Restrict access to raw survey data and define retention/sharing rules with the project supervisor/team.
+A separate specialist/team can contribute map assets or mapping algorithms, but the final app should be able to manage maps and positioning as one cohesive user workflow.
 
 ---
 
-## 6. Proposed software stack
+## 8. Proposed software stack
 
 | Layer | Intended technology | Responsibility |
 |---|---|---|
-| Collection and map UI | Flutter / Dart | Survey flows, data review, indoor map and live marker |
-| Android device integration | Kotlin, Android Wi-Fi APIs, Android sensor APIs | Wi-Fi scans and sensor events |
-| Local persistence | SQLite or another appropriate local database | Durable offline collection and upload queue |
-| Backend API | ASP.NET Core | Upload, validation, queries, metadata and dataset management |
-| Central database | Microsoft SQL Server | Structured survey and map metadata |
-| Processing/experimentation | Python | Dataset analysis, baseline algorithms, plots and evaluation |
-| Runtime positioning | Start with a testable implementation; integrate into Flutter/native Android as appropriate | On-device estimates and sensor fusion |
-| Map assets | Agreed vector/raster format | Floor rendering and coordinate transform |
+| Mobile application | Flutter / Dart | Map management UI, survey, map display, positioning UI |
+| Android device integration | Kotlin and Android Wi-Fi/sensor APIs | Wi-Fi scans and sensor events |
+| Map generation providers | Initially import/calibration; evaluate ROS 2 LiDAR/SLAM and phone AR later | Produce spatial geometry |
+| Map conversion/validation | Python or suitable native libraries initially | Convert provider outputs into canonical map packages |
+| Local persistence | SQLite or equivalent | Offline maps, survey dataset and upload queue |
+| Backend API | ASP.NET Core | Map metadata, sync, survey upload, validation and retrieval |
+| Central database | Microsoft SQL Server | Structured map/survey metadata and observations |
+| Asset storage | Filesystem/object storage or suitable blob storage | Map images, vectors, grids and exports |
+| Processing/experimentation | Python | Dataset analysis and baseline algorithms |
+| Runtime positioning | Testable on-device components | Wi-Fi/PDR/magnetic estimates and fusion |
 
-Technology choices can change. Keep API schemas and data formats independent enough that experimentation in Python does not lock the mobile app to one implementation.
-
----
-
-## 7. Immediate priorities
-
-The most useful next work, in order:
-
-1. **Finish and verify real Android Wi-Fi capture** on the target physical phone, including permission and scan-throttling behavior.
-2. **Agree on a timestamp and collection metadata model** before adding more sensors.
-3. **Add accelerometer, gyroscope and magnetometer collection** with original sensor timestamps.
-4. **Implement local durable storage** for sessions, locations, scans, AP measurements and sensor samples.
-5. **Add survey and walking modes**, including labelled reference points and route checkpoints.
-6. **Define the map/positioning coordinate contract with the map team now**, before collecting a large dataset.
-7. **Replace the starter backend endpoint** with versioned collection/upload APIs and SQL Server persistence.
-8. **Create and validate a small pilot dataset** before scaling collection.
-9. Implement Wi-Fi baseline localization, then PDR/magnetic methods, then fusion.
-10. Integrate the position stream with the floor-map renderer and evaluate the full system.
+Technology choices are provisional. Keep the map package, API contracts and position contract independent of any one mapping provider.
 
 ---
 
-## 8. Decisions and open questions
+## 9. Immediate priorities
 
-Keep this section current. Mark a question resolved only after the team agrees and documents the chosen value.
+1. Verify reliable Android Wi-Fi scanning on the target phone.
+2. Agree on the canonical map metadata and coordinate convention before collecting a large dataset.
+3. Implement the first map-authoring MVP: import a floor-plan image, calibrate scale/origin/axes, preview and save a versioned map.
+4. Add map browsing/selection so survey sessions can reference a saved map and version.
+5. Add accelerometer, gyroscope and magnetometer collection with original timestamps.
+6. Implement durable local storage for maps, sessions, reference points, scans, AP measurements and sensor samples.
+7. Add reference-point and walking/trajectory collection modes.
+8. Replace the starter API with map and survey endpoints plus SQL Server persistence.
+9. Create a small pilot dataset on a calibrated map.
+10. Implement and evaluate Wi-Fi localization, then PDR/magnetic baselines, then fusion.
+11. Add a map-provider import path for LiDAR/SLAM output and evaluate phone-based mapping as a later option.
+12. Integrate live position updates with the map renderer and evaluate end-to-end accuracy.
+
+The first map workflow should be achievable without waiting for a full phone-based SLAM implementation. Manual import/calibration provides a useful MVP while keeping the canonical package ready for generated maps.
+
+---
+
+## 10. Decisions and open questions
 
 | Topic | Current proposal / question | Status |
 |---|---|---|
-| Target platform | Android phone first; Flutter UI with native Android sensor/Wi-Fi access | Proposed |
-| Wi-Fi fingerprint key | BSSID plus RSSI and frequency per scan | Proposed |
-| Sensor sampling rates | Determine supported rates and battery/data trade-offs on target devices | Open |
-| Timestamp strategy | UTC capture time plus original monotonic sensor timestamps | Proposed |
-| Local storage | SQLite or equivalent offline-first storage | Open |
-| Central database | SQL Server | Planned |
-| API | ASP.NET Core | Starter project exists; data API not implemented |
-| Map format | SVG/GeoJSON preferred where useful; PNG also supported | Joint decision needed |
-| Coordinate unit | Metres | Proposed |
-| Coordinate origin/axes | One defined origin and axis orientation per floor | Map-team decision needed |
-| Heading convention | Document degrees reference and rotation direction | Open |
-| Floor identifiers | Stable building/floor IDs shared by both teams | Joint decision needed |
+| Product end goal | User-created indoor maps with positioning layer on top | **Product direction** |
+| First mapping workflow | Import floor-plan image/vector, calibrate and save | Proposed MVP |
+| Future mapping providers | LiDAR/SLAM, phone AR/visual mapping, depth scanning | To evaluate |
+| Reuse of ROS 2 mapping work | Check export format, coordinate metadata and suitability | Open |
+| Canonical map package | Versioned asset(s), geometry and coordinate metadata | Required design |
+| Map coordinate unit | Metres | Proposed |
+| Origin and axes | Explicit per map version | Required |
+| Map versioning | Immutable versions; surveys reference exact version | Proposed |
+| Target platform | Android first; Flutter UI with Kotlin platform integration | Proposed |
+| Wi-Fi fingerprint key | BSSID + RSSI + frequency per scan | Proposed |
+| Sensor sampling rates | Measure device support and battery/data trade-offs | Open |
+| Timestamp strategy | UTC plus original monotonic/platform sensor timestamps | Proposed |
+| Local storage | SQLite or equivalent offline-first persistence | Open |
+| Backend/database | ASP.NET Core and SQL Server | Planned; API not implemented |
+| Map asset storage | File/blob assets plus SQL metadata | Proposed |
+| Heading convention | Document reference direction and rotation direction | Open |
 | Position update transport | In-process stream inside app initially | Proposed |
 | Fusion algorithm | Select after data collection and baseline evaluation | Open |
-| Ground truth | Survey points and/or independently verified trajectories | Open |
-| Evaluation thresholds | Agree acceptable error and update latency with project stakeholders | Open |
+| Ground truth | Survey control points and/or independently verified trajectories | Open |
+| Evaluation thresholds | Agree acceptable error and latency with stakeholders | Open |
 
 ---
 
-## 9. Documentation and change-control rules
+## 11. Data and timestamp conventions
 
-To keep this document useful:
+- Use stable IDs for buildings, floors, maps, map versions, sessions, reference points, scans and generated records.
+- Use UTC wall-clock timestamps for cross-system association and retain original platform/monotonic timestamps for sensor timing.
+- Keep canonical indoor coordinates in metres and floor as a separate ID.
+- Store map ID/version and coordinate-frame identity with every surveyed point and position estimate.
+- Preserve raw sensor observations and provenance.
+- Keep BSSID only for the project's fingerprinting needs; avoid collecting unrelated personal data and define access/retention rules.
 
-- Update the **current implementation snapshot** whenever a feature is completed, changed, or removed.
-- Change a roadmap item from Planned to In progress or Implemented only when the code and tests support that status.
-- Record important architecture decisions in the Decisions section, including the date and reason.
-- When an API payload or database schema is implemented, link to its source file/migration and update the examples here.
-- When the map team provides an asset or coordinate specification, record its version and link it here.
-- Keep sample payloads clearly labelled as illustrative until they match the implemented DTO/schema.
-- Do not delete historical decisions without recording why they changed.
+---
+
+## 12. Documentation and change-control rules
+
+- Update the implementation snapshot when code changes.
+- Mark a capability implemented only when the code and tests support it.
+- Record architecture decisions, dates and reasons.
+- Link implemented DTOs, schemas, migrations and map conversion code when they exist.
+- Record map format versions and sample map packages when available.
+- Keep illustrative payloads labelled until they match actual contracts.
+- Preserve historical decisions when replacing them.
 
 ### Change log
 
 | Date | Update |
 |---|---|
-| 2026-11-03 | Initial living plan covering Wi-Fi, PDR, magnetic sensing, sensor fusion, dataset storage, and indoor-map live positioning integration. Repository inspected; existing code and planned capabilities distinguished. |
+| 2026-11-03 | Established the product end goal as user-created indoor maps with a Wi-Fi/PDR/magnetic positioning layer. Reframed mapping as a core app capability rather than a dependency on a separate map team. Added mapping-method comparison, canonical map package, versioning/coordinate contract, map-authoring MVP and staged LiDAR/SLAM and phone-AR paths. |
 
 ---
 
-## 10. Definition of the finished system
+## 13. Definition of the finished system
 
-The project is considered integrated when:
+The project is integrated when:
 
-- A surveyor can collect repeatable, labelled Wi-Fi and multimodal sensor datasets.
-- Data is saved locally and centrally without loss or accidental duplication.
-- The system can estimate a live position and floor from Wi-Fi/PDR/magnetic inputs, with quality information.
-- Position estimates use the same coordinate system as the indoor maps.
-- The Flutter application renders a stable, correctly aligned live marker on the correct floor.
-- The system has been tested against independent ground truth and its error/latency limitations are documented.
+- A user can create/import a floor map, calibrate it and save a versioned map package.
+- The map package records enough geometry and coordinate metadata for independent components to use it consistently.
+- A user can select that map and collect labelled Wi-Fi, motion and magnetic observations at known map coordinates.
+- Survey data is saved locally and centrally without accidental duplication or loss.
+- The app can estimate live position/floor using Wi-Fi, PDR and magnetic information, with quality/uncertainty information.
+- The positioning engine reports coordinates in the selected map version's canonical frame.
+- The Flutter renderer displays a correctly aligned live marker on the user-created map.
+- The system is evaluated against independent ground truth, with mapping and positioning limitations documented.
 
-The final deliverable is therefore **not just a database of scans or a static map**. It is an indoor positioning pipeline connected to a map interface, supported by a repeatable data-collection and evaluation process.
+**Final deliverable:** a user-facing indoor mapping and positioning application in which users can create and manage indoor maps, collect or build the positioning data associated with them, and see their live estimated position on those maps.
