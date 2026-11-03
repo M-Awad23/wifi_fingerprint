@@ -74,7 +74,7 @@ The repository currently contains:
 - A Flutter-to-Android method channel named `wifi_fingerprint/scanner`, with a `scanWifi` method.
 - A starter ASP.NET Core API project under `backend/WifiFingerprint.Api/`.
 
-The Flutter survey UI and Android Wi-Fi scanning integration are the current foundation. The backend now has an initial SQL Server persistence foundation for Wi-Fi survey sessions, scan batches and access-point observations. API endpoints and migrations are not yet implemented.
+The Flutter survey UI and Android Wi-Fi scanning integration are the current foundation. The backend has an initial SQL Server persistence foundation, but it is not yet connected to the Flutter app. A code review identified collection correctness and test issues that must be addressed before treating collected scans as reliable dataset records.
 
 **Not yet implemented based on the repository snapshot documented here:** full map authoring, map import/calibration workflow, durable map package storage, durable multimodal survey storage, motion/magnetic collection, positioning algorithms, sensor fusion, and live map overlay. The roadmap below is intended architecture, not a claim these features already exist.
 
@@ -90,8 +90,8 @@ The Flutter survey UI and Android Wi-Fi scanning integration are the current fou
 | LiDAR/SLAM map import | Planned | Mapping method to evaluate; not assumed implemented |
 | Phone AR/visual map creation | Future option | Evaluate after initial product workflow |
 | Canonical map package and coordinate metadata | Planned | Required shared contract |
-| Accelerometer and gyroscope collection | Planned | Raw timestamped samples |
-| Magnetometer collection | Planned | Raw XYZ values and derived magnitude |
+| Accelerometer and gyroscope collection | Planned | Raw timestamped samples; add after Wi-Fi freshness/test fixes |
+| Magnetometer collection | Planned | Raw XYZ values and derived magnitude; add after Wi-Fi freshness/test fixes |
 | Durable local map and survey storage | Planned | Offline-first |
 | SQL Server persistence/API | Foundation implemented | EF Core entities/context and LocalDB connection configured; migration and endpoints pending |
 | Wi-Fi KNN/WKNN localization | Planned | Needs labelled fingerprints |
@@ -456,8 +456,8 @@ Technology choices are provisional. Keep the map package, API contracts and posi
 | Target platform | Android first; Flutter UI with Kotlin platform integration | Proposed |
 | Wi-Fi fingerprint key | BSSID + RSSI + frequency per scan | Proposed |
 | Sensor sampling rates | Measure device support and battery/data trade-offs | Open |
-| Timestamp strategy | UTC plus original monotonic/platform sensor timestamps | Proposed |
-| Local storage | SQLite or equivalent offline-first persistence | Open |
+| Timestamp strategy | UTC plus original monotonic/platform sensor timestamps; Android Wi-Fi result timestamp retained | Required for collection correctness |
+| Local storage | SQLite or equivalent offline-first persistence, session-linked records | Proposed |
 | Backend/database | ASP.NET Core and SQL Server | Planned; API not implemented |
 | Map asset storage | File/blob assets plus SQL metadata | Proposed |
 | Heading convention | Document reference direction and rotation direction | Open |
@@ -479,7 +479,7 @@ Technology choices are provisional. Keep the map package, API contracts and posi
 
 ---
 
-## 12. Documentation and change-control rules
+## 12. Collection reliability review (2026-11-03)\n\nThe following issues were identified in the current code and are now prioritized before migrations or large-scale data collection:\n\n1. **Stale Wi-Fi results can be counted as new scans.** Android may throttle `startScan()`. The native code must not return cached `scanResults` as a successful fresh scan after a refused request or short delay. Use scan-start cutoff versus `ScanResult.timestamp`, report freshness to Dart, and inspect `EXTRA_RESULTS_UPDATED`.\n2. **Widget tests currently target the removed template app.** Replace the counter smoke test that pumps `MyApp` with tests for the actual `WiFiFingerprintApp`/survey screen; run `flutter test`.\n3. **Survey/session fields are currently UI-only.** Start/stop changes a status flag; scans are not yet recorded with session/building/location metadata and are lost on reset/close. This is a known gap; implement persistence after sensor collection and data-model stabilization.\n4. **Permission grant does not retry scanning.** Improve the native permission callback to resume the pending scan after grant, avoiding the misleading “tap again” flow.\n5. **Reference location is incorrectly scoped in the initial backend schema.** Remove `LocationLabel` from session-level semantics and put reference-point/location metadata on `ScanBatch` or a `ReferencePoint` relation. Include floor/map version and coordinates when known.\n6. **Observation provenance is incomplete.** Preserve Android scan timestamp (monotonic microseconds), UTC association time, device model, and phone heading/orientation when available. Use device timestamps for alignment; server timestamps are ingestion metadata, not sensor observation time.\n7. **Dependency versions need consistency.** Pin EF Core packages to a coherent exact version compatible with the target .NET SDK and align OpenAPI/EF package versions.\n8. **Flutter package metadata is still template text.** Replace the placeholder description in `pubspec.yaml`.\n9. **LAN API configuration needs a development profile.** Plain HTTP for a phone-to-development-server connection should be configured explicitly for development only; retain HTTPS/security expectations for non-development deployments.\n\nRecommended order: (a) freshness handling + tests + permission retry, (b) sensor channel and UI readout, (c) revise schema before migrations, (d) session-linked local storage/export, (e) backend sync.\n\n## 13. Documentation and change-control rules
 
 - Update the implementation snapshot when code changes.
 - Mark a capability implemented only when the code and tests support it.
@@ -493,11 +493,11 @@ Technology choices are provisional. Keep the map package, API contracts and posi
 
 | Date | Update |
 |---|---|
-| 2026-11-03 | Established the product end goal as user-created indoor maps with a Wi-Fi/PDR/magnetic positioning layer. Reframed mapping as a core app capability rather than a dependency on a separate map team. Added mapping-method comparison, canonical map package, versioning/coordinate contract, map-authoring MVP and staged LiDAR/SLAM and phone-AR paths. |\n| 2026-11-03 | Reordered the roadmap to prioritize device data collection and positioning algorithm prototypes, followed by robotics mapping-format discovery. Deferred map authoring/import and durable persistence until the mapping team's actual export formats and coordinate conventions are known. Added explicit integration-discovery deliverables and updated immediate priorities. |\n| 2026-11-03 | Added initial backend persistence foundation: `SurveySession`, `ScanBatch`, and `AccessPointObservation` entities; `WifiFingerprintDbContext` with relationships, lengths and indexes; SQL Server DbContext registration; and a LocalDB connection string. EF migration/database creation and API endpoints remain pending. |
+| 2026-11-03 | Established the product end goal as user-created indoor maps with a Wi-Fi/PDR/magnetic positioning layer. Reframed mapping as a core app capability rather than a dependency on a separate map team. Added mapping-method comparison, canonical map package, versioning/coordinate contract, map-authoring MVP and staged LiDAR/SLAM and phone-AR paths. |\n| 2026-11-03 | Reordered the roadmap to prioritize device data collection and positioning algorithm prototypes, followed by robotics mapping-format discovery. Deferred map authoring/import and durable persistence until the mapping team's actual export formats and coordinate conventions are known. Added explicit integration-discovery deliverables and updated immediate priorities. |\n| 2026-11-03 | Added initial backend persistence foundation: `SurveySession`, `ScanBatch`, and `AccessPointObservation` entities; `WifiFingerprintDbContext` with relationships, lengths and indexes; SQL Server DbContext registration; and a LocalDB connection string. EF migration/database creation and API endpoints remain pending. |\n| 2026-11-03 | Recorded collection reliability review: stale Wi-Fi scan handling, outdated widget test, session metadata not persisted, permission retry UX, reference-point schema placement, device timestamps/device orientation provenance, package version consistency, Flutter package description, and dev-only LAN HTTP configuration. Prioritized correctness fixes before sensor integration and persistence migrations. |
 
 ---
 
-## 13. Definition of the finished system
+## 14. Definition of the finished system
 
 The project is integrated when:
 
