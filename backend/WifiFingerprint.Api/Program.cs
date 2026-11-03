@@ -19,7 +19,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())\n{\n    app.UseHttpsRedirection();\n}
 
 app.MapGet("/", () => Results.Ok(new
 {
