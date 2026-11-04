@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:ar_flutter_plugin_flutterflow/ar_flutter_plugin.dart';
+import 'package:ar_flutter_plugin_flutterflow/managers/ar_session_manager.dart';
+import 'package:ar_flutter_plugin_flutterflow/managers/ar_object_manager.dart';
+import 'package:ar_flutter_plugin_flutterflow/managers/ar_anchor_manager.dart';
+import 'package:ar_flutter_plugin_flutterflow/managers/ar_location_manager.dart';
 import 'local_survey_database.dart';
 
 void main() => runApp(const WiFiFingerprintApp());
@@ -337,8 +341,8 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
               if (selected != null) ...[
                 const SizedBox(height: 8),
                 Align(alignment: Alignment.centerLeft, child: Text('Scan ${selected.id} · ${selected.time.toLocal()} · ${selected.aps.length} APs', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
-                SizedBox(height: 90, child: ListView.builder(itemCount: selected.aps.length, itemBuilder: (context, i) {
-                  final ap = selected.aps[i];
+                SizedBox(height: 90, child: ListView.builder(itemCount: selected!.aps.length, itemBuilder: (context, i) {
+                  final ap = selected!.aps[i];
                   return ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text(ap['ssid']?.toString().isNotEmpty == true ? ap['ssid'].toString() : 'Hidden network', style: const TextStyle(fontSize: 12)), subtitle: Text('${ap['bssid']}  •  ${ap['rssi']} dBm  •  ${ap['frequency_mhz']} MHz', style: const TextStyle(fontSize: 11)));
                 })),
               ],
