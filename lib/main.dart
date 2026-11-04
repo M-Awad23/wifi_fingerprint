@@ -219,30 +219,32 @@ class SessionTrajectoryPage extends StatefulWidget {
 }
 
 class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
-  late Future<List<Offset>> _trajectoryFuture;
+  late Future<_SurveyMapData> _mapFuture;
   int _sampleCount = 0;
   int _stepCount = 0;
+  int? _selectedScan;
 
   @override
   void initState() {
     super.initState();
-    _trajectoryFuture = _buildTrajectory();
+    _mapFuture = _buildMapData();
   }
 
-  Future<List<Offset>> _buildTrajectory() async {
-    final rows = await LocalSurveyDatabase.instance.getSensorSamples(widget.session['id'] as int);
+  Future<_SurveyMapData> _buildMapData() async {
+    final sessionId = widget.session['id'] as int;
+    final rows = await LocalSurveyDatabase.instance.getSensorSamples(sessionId);
+    final scanRows = await LocalSurveyDatabase.instance.getScanBatches(sessionId);
     _sampleCount = rows.length;
     final points = <Offset>[Offset.zero];
+    final stepTimes = <DateTime>[DateTime.tryParse(rows.isNotEmpty ? rows.first['recorded_at_utc'].toString() : '') ?? DateTime.now()];
     var lastPeakNs = 0;
     var previousMagnitude = 0.0;
     var rising = false;
     var heading = 0.0;
     const gravity = 9.80665;
-    // A deliberately simple step detector: magnitude peak threshold + refractory interval.
     for (final row in rows) {
-      final type = row['sensor_type']?.toString();
       if (row['heading_degrees'] is num) heading = (row['heading_degrees'] as num).toDouble();
-      if (type != 'accelerometer') continue;
+      if (row['sensor_type'] != 'accelerometer') continue;
       final x = (row['x'] as num?)?.toDouble() ?? 0;
       final y = (row['y'] as num?)?.toDouble() ?? 0;
       final z = (row['z'] as num?)?.toDouble() ?? 0;
@@ -254,47 +256,80 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
         lastPeakNs = timestamp;
         rising = true;
         _stepCount++;
-        // Approximate step length. Heading is Android azimuth (degrees clockwise from north).
         const stepLength = 0.65;
-        final radians = heading * 3.141592653589793 / 180.0;
+        final radians = heading * math.pi / 180.0;
         final previous = points.last;
-        points.add(Offset(previous.dx + stepLength * _sin(radians),
-            previous.dy + stepLength * _cos(radians)));
+        points.add(Offset(previous.dx + stepLength * math.sin(radians),
+            previous.dy + stepLength * math.cos(radians)));
+        stepTimes.add(DateTime.tryParse(row['recorded_at_utc'].toString()) ?? stepTimes.last);
       }
       if (!above) rising = false;
       previousMagnitude = magnitude;
     }
-    return points;
-  }
 
-  double _sin(double value) => math.sin(value);
-  double _cos(double value) => math.cos(value);
+    final scansById = <int, _ScanMarker>{};
+    for (final row in scanRows) {
+      final id = (row['id'] as num).toInt();
+      final scanTime = DateTime.tryParse(row['received_at_utc']?.toString() ?? '');
+      if (scanTime == null) continue;
+      var nearest = 0;
+      var best = double.infinity;
+      for (var i = 0; i < stepTimes.length; i++) {
+        final delta = stepTimes[i].difference(scanTime).inMilliseconds.abs().toDouble();
+        if (delta < best) { best = delta; nearest = i; }
+      }
+      final ap = <Map<String, dynamic>>[];
+      if (row['bssid'] != null) ap.add(Map<String, dynamic>.from(row));
+      final marker = scansById.putIfAbsent(id, () => _ScanMarker(id: id, time: scanTime, position: points[nearest], aps: []));
+      if (ap.isNotEmpty) marker.aps.add(ap.first);
+    }
+    return _SurveyMapData(points: points, scans: scansById.values.toList());
+  }
 
   @override
   Widget build(BuildContext context) {
     final name = widget.session['session_name']?.toString() ?? 'Session';
     return Scaffold(
-      appBar: AppBar(title: Text('$name · map')),
-      body: FutureBuilder<List<Offset>>(
-        future: _trajectoryFuture,
+      appBar: AppBar(title: Text('$name · survey map')),
+      body: FutureBuilder<_SurveyMapData>(
+        future: _mapFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text('Could not build trajectory: ${snapshot.error}'));
-          final points = snapshot.data ?? const <Offset>[];
+          if (snapshot.hasError) return Center(child: Text('Could not build map: ${snapshot.error}'));
+          final data = snapshot.data!;
+          final selected = _selectedScan != null ? data.scans.where((s) => s.id == _selectedScan).firstOrNull : null;
           return Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             child: Column(children: [
-              Text('Sensor samples: $_sampleCount • Estimated steps: $_stepCount'),
-              const SizedBox(height: 12),
+              Text('Origin (0,0) • $_stepCount steps • ${data.scans.length} scans', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
               Expanded(child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
-                child: points.length < 2
-                  ? const Center(child: Text('Not enough detected steps to draw a path.'))
-                  : CustomPaint(painter: TrajectoryPainter(points)),
+                child: data.points.length < 2
+                  ? const Center(child: Text('Walk while recording to build the path.'))
+                  : CustomPaint(painter: SurveyMapPainter(data.points, data.scans, _selectedScan)),
               )),
-              const SizedBox(height: 10),
-              const Text('Start ●  Path —  End ■', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              const Text('Green = start  •  Blue = path  •  Orange = Wi-Fi scan  •  Rings = signal estimate', style: TextStyle(fontSize: 11)),
+              if (selected != null) ...[
+                const SizedBox(height: 8),
+                Align(alignment: Alignment.centerLeft, child: Text('Scan ${selected.id} · ${selected.time.toLocal()} · ${selected.aps.length} APs', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                SizedBox(height: 90, child: ListView.builder(itemCount: selected.aps.length, itemBuilder: (context, i) {
+                  final ap = selected.aps[i];
+                  return ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text(ap['ssid']?.toString().isNotEmpty == true ? ap['ssid'].toString() : 'Hidden network', style: const TextStyle(fontSize: 12)), subtitle: Text('${ap['bssid']}  •  ${ap['rssi']} dBm  •  ${ap['frequency_mhz']} MHz', style: const TextStyle(fontSize: 11)));
+                })),
+              ],
+              SizedBox(height: 80, child: ListView.builder(
+                scrollDirection: Axis.horizontal, itemCount: data.scans.length,
+                itemBuilder: (context, i) {
+                  final scan = data.scans[i];
+                  return Padding(padding: const EdgeInsets.only(right: 6), child: OutlinedButton(
+                    onPressed: () => setState(() => _selectedScan = scan.id),
+                    style: OutlinedButton.styleFrom(backgroundColor: _selectedScan == scan.id ? Colors.orange.shade50 : null),
+                    child: Text('Scan ${scan.id}\n${scan.aps.length} APs', textAlign: TextAlign.center, style: const TextStyle(fontSize: 11)),
+                  ));
+                })),
             ]),
           );
         }),
@@ -302,32 +337,56 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
   }
 }
 
-class TrajectoryPainter extends CustomPainter {
+class _SurveyMapData {
   final List<Offset> points;
-  TrajectoryPainter(this.points);
+  final List<_ScanMarker> scans;
+  _SurveyMapData({required this.points, required this.scans});
+}
+
+class _ScanMarker {
+  final int id;
+  final DateTime time;
+  final Offset position;
+  final List<Map<String, dynamic>> aps;
+  _ScanMarker({required this.id, required this.time, required this.position, required this.aps});
+}
+
+class SurveyMapPainter extends CustomPainter {
+  final List<Offset> points;
+  final List<_ScanMarker> scans;
+  final int? selectedScan;
+  SurveyMapPainter(this.points, this.scans, this.selectedScan);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-    final minX = points.map((p) => p.dx).reduce((a,b) => a < b ? a : b);
-    final maxX = points.map((p) => p.dx).reduce((a,b) => a > b ? a : b);
-    final minY = points.map((p) => p.dy).reduce((a,b) => a < b ? a : b);
-    final maxY = points.map((p) => p.dy).reduce((a,b) => a > b ? a : b);
+    if (points.isEmpty) return;
+    final all = [...points, ...scans.map((s) => s.position)];
+    final minX = all.map((p) => p.dx).reduce(math.min);
+    final maxX = all.map((p) => p.dx).reduce(math.max);
+    final minY = all.map((p) => p.dy).reduce(math.min);
+    final maxY = all.map((p) => p.dy).reduce(math.max);
     final spanX = math.max(1.0, (maxX-minX).abs()).toDouble();
     final spanY = math.max(1.0, (maxY-minY).abs()).toDouble();
-    const pad = 28.0;
+    const pad = 30.0;
     final scale = math.max(0.1, math.min((size.width-2*pad)/spanX, (size.height-2*pad)/spanY)).toDouble();
     Offset transform(Offset p) => Offset(pad+(p.dx-minX)*scale, size.height-pad-(p.dy-minY)*scale);
     final path = Path()..moveTo(transform(points.first).dx, transform(points.first).dy);
-    for (final point in points.skip(1)) {
-      final q = transform(point); path.lineTo(q.dx, q.dy);
-    }
+    for (final point in points.skip(1)) { final q = transform(point); path.lineTo(q.dx, q.dy); }
     canvas.drawPath(path, Paint()..color=Colors.blue..strokeWidth=3..style=PaintingStyle.stroke..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round);
-    final start = transform(points.first), end = transform(points.last);
-    canvas.drawCircle(start, 6, Paint()..color=Colors.green);
-    canvas.drawRect(Rect.fromCenter(center:end,width:10,height:10), Paint()..color=Colors.red);
+    canvas.drawCircle(transform(points.first), 6, Paint()..color=Colors.green);
+    canvas.drawRect(Rect.fromCenter(center:transform(points.last),width:10,height:10), Paint()..color=Colors.red);
+    for (final scan in scans) {
+      final p = transform(scan.position);
+      final strongest = scan.aps.map((a) => (a['rssi'] as num?)?.toInt() ?? -100).fold(-100, math.max);
+      // Visual-only rough RSSI range: stronger signals get smaller rings.
+      final radiusMeters = math.max(1.0, math.min(8.0, math.pow(10, (-strongest - 35) / 30).toDouble()));
+      final radius = math.max(5.0, radiusMeters * scale);
+      canvas.drawCircle(p, radius, Paint()..color=Colors.orange.withOpacity(0.12)..style=PaintingStyle.fill);
+      canvas.drawCircle(p, radius, Paint()..color=Colors.orange.withOpacity(0.55)..style=PaintingStyle.stroke..strokeWidth=1);
+      canvas.drawCircle(p, selectedScan == scan.id ? 7 : 5, Paint()..color=selectedScan == scan.id ? Colors.deepOrange : Colors.orange);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant TrajectoryPainter oldDelegate) => oldDelegate.points != points;
+  bool shouldRepaint(covariant SurveyMapPainter oldDelegate) => oldDelegate.points != points || oldDelegate.scans != scans || oldDelegate.selectedScan != selectedScan;
 }
