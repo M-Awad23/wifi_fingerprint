@@ -449,7 +449,7 @@ class _ArSurveyPageState extends State<ArSurveyPage> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
             const Expanded(child: Text('Nearby access points', style: TextStyle(fontWeight: FontWeight.w600))),
-            Text('\${_accessPoints.length}', style: const TextStyle(fontSize: 12)),
+            Text('${_accessPoints.length}', style: const TextStyle(fontSize: 12)),
             const SizedBox(width: 8),
             FilledButton.tonalIcon(onPressed: _scanning ? null : _scan,
               icon: _scanning ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.wifi_find, size: 16),
@@ -465,8 +465,8 @@ class _ArSurveyPageState extends State<ArSurveyPage> {
               return ListTile(dense: true, contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.wifi, color: rssi >= -60 ? Colors.green : (rssi >= -75 ? Colors.orange : Colors.grey)),
                 title: Text(ap['ssid']?.toString().isNotEmpty == true ? ap['ssid'].toString() : 'Hidden network', style: const TextStyle(fontSize: 13)),
-                subtitle: Text('\${ap['bssid'] ?? ''} · \${ap['frequency'] ?? '—'} MHz', style: const TextStyle(fontSize: 10)),
-                trailing: Text('\$rssi dBm', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)));
+                subtitle: Text('${ap['bssid'] ?? ''} · ${ap['frequency'] ?? '—'} MHz', style: const TextStyle(fontSize: 10)),
+                trailing: Text('$rssi dBm', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)));
             })),
           const Text('AR camera tracking is active; AP direction/position is not inferred from RSSI alone.', style: TextStyle(fontSize: 10, color: Colors.black54)),
         ]),
