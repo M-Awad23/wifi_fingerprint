@@ -1,4 +1,5 @@
-import 'dart:async';\nimport 'dart:math' as math;
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'local_survey_database.dart';
@@ -140,7 +141,8 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       Wrap(spacing: 8, runSpacing: 8, children: [_field('Session', _sessionController), _field('Building', _buildingController), _field('Location label', _locationController)]),
       const SizedBox(height: 10),
       Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, runSpacing: 8, children: [
-        OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),\n        OutlinedButton.icon(onPressed: _openSessionMaps, icon: const Icon(Icons.map_outlined, size: 16), label: const Text('Session maps')),
+        OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),
+        OutlinedButton.icon(onPressed: _openSessionMaps, icon: const Icon(Icons.map_outlined, size: 16), label: const Text('Session maps')),
         Text(_isSurveying ? 'Status: Recording locally' : 'Status: Idle', style: const TextStyle(fontSize: 13)),
         Text('Scans: $_scanCount', style: const TextStyle(fontSize: 13)),
         Text('Saved sensor samples: $_savedSensorCount', style: const TextStyle(fontSize: 13)),
@@ -272,7 +274,7 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
   Widget build(BuildContext context) {
     final name = widget.session['session_name']?.toString() ?? 'Session';
     return Scaffold(
-      appBar: AppBar(title: Text('$name · trajectory')),
+      appBar: AppBar(title: Text('$name · map')),
       body: FutureBuilder<List<Offset>>(
         future: _trajectoryFuture,
         builder: (context, snapshot) {
@@ -282,8 +284,6 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              const Text('Approximate relative path from motion sensors', style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
               Text('Sensor samples: $_sampleCount • Estimated steps: $_stepCount'),
               const SizedBox(height: 12),
               Expanded(child: Container(
@@ -295,8 +295,6 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
               )),
               const SizedBox(height: 10),
               const Text('Start ●  Path —  End ■', style: TextStyle(fontSize: 12)),
-              const SizedBox(height: 6),
-              const Text('This is a rough dead-reckoning sketch, not a calibrated floor plan. Step length and heading errors accumulate.', style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
             ]),
           );
         }),
