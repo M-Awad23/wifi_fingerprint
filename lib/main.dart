@@ -297,7 +297,7 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
           if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return Center(child: Text('Could not build map: ${snapshot.error}'));
           final data = snapshot.data!;
-          final selected = _selectedScan != null ? data.scans.where((s) => s.id == _selectedScan).firstOrNull : null;
+          _ScanMarker? selected;\n          for (final scan in data.scans) { if (scan.id == _selectedScan) selected = scan; }
           return Padding(
             padding: const EdgeInsets.all(12),
             child: Column(children: [
@@ -361,8 +361,8 @@ class SurveyMapPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
     final all = [...points, ...scans.map((s) => s.position)];
-    final minX = all.map((p) => p.dx).reduce(math.min);
-    final maxX = all.map((p) => p.dx).reduce(math.max);
+    final minX = all.map((p) => p.dx).reduce((a, b) => a < b ? a : b);
+    final maxX = all.map((p) => p.dx).reduce((a, b) => a > b ? a : b);
     final minY = all.map((p) => p.dy).reduce(math.min);
     final maxY = all.map((p) => p.dy).reduce(math.max);
     final spanX = math.max(1.0, (maxX-minX).abs()).toDouble();
@@ -377,7 +377,7 @@ class SurveyMapPainter extends CustomPainter {
     canvas.drawRect(Rect.fromCenter(center:transform(points.last),width:10,height:10), Paint()..color=Colors.red);
     for (final scan in scans) {
       final p = transform(scan.position);
-      final strongest = scan.aps.map((a) => (a['rssi'] as num?)?.toInt() ?? -100).fold(-100, math.max);
+      final strongest = scan.aps.map((a) => (a['rssi'] as num?)?.toInt() ?? -100).fold<int>(-100, (a, b) => a > b ? a : b);
       // Visual-only rough RSSI range: stronger signals get smaller rings.
       final radiusMeters = math.max(1.0, math.min(8.0, math.pow(10, (-strongest - 35) / 30).toDouble()));
       final radius = math.max(5.0, radiusMeters * scale);
