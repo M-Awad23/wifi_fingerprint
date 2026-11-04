@@ -155,6 +155,18 @@ class LocalSurveyDatabase {
     return db.query('sensor_samples', where: 'session_id = ?', whereArgs: [sessionId], orderBy: 'sensor_timestamp_ns ASC');
   }
 
+  Future<List<Map<String, dynamic>>> getScanBatches(int sessionId) async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT sb.id, sb.received_at_utc, sb.heading_degrees, sb.location_label,
+             ap.ssid, ap.bssid, ap.rssi, ap.frequency_mhz
+      FROM scan_batches sb
+      LEFT JOIN access_point_observations ap ON ap.scan_batch_id = sb.id
+      WHERE sb.session_id = ?
+      ORDER BY sb.received_at_utc ASC, ap.rssi DESC
+    ''', [sessionId]);
+  }
+
   Future<Map<String, int>> getSessionCounts(int sessionId) async {
     final db = await database;
     final sensors = Sqflite.firstIntValue(await db.rawQuery(
