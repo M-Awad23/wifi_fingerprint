@@ -297,7 +297,8 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
           if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return Center(child: Text('Could not build map: ${snapshot.error}'));
           final data = snapshot.data!;
-          _ScanMarker? selected;\n          for (final scan in data.scans) { if (scan.id == _selectedScan) selected = scan; }
+          _ScanMarker? selected;
+          for (final scan in data.scans) { if (scan.id == _selectedScan) selected = scan; }
           return Padding(
             padding: const EdgeInsets.all(12),
             child: Column(children: [
