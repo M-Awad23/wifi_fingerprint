@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async';\nimport 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'local_survey_database.dart';
@@ -244,7 +244,7 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
       final x = (row['x'] as num?)?.toDouble() ?? 0;
       final y = (row['y'] as num?)?.toDouble() ?? 0;
       final z = (row['z'] as num?)?.toDouble() ?? 0;
-      final magnitude = (x*x + y*y + z*z).sqrt();
+      final magnitude = math.sqrt(x*x + y*y + z*z);
       final timestamp = (row['sensor_timestamp_ns'] as num).toInt();
       final above = magnitude > gravity + 1.15;
       if (above && !rising && previousMagnitude <= magnitude &&
@@ -265,8 +265,8 @@ class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
     return points;
   }
 
-  double _sin(double value) => value.sin();
-  double _cos(double value) => value.cos();
+  double _sin(double value) => math.sin(value);
+  double _cos(double value) => math.cos(value);
 
   @override
   Widget build(BuildContext context) {
@@ -315,8 +315,8 @@ class TrajectoryPainter extends CustomPainter {
     final maxX = points.map((p) => p.dx).reduce((a,b) => a > b ? a : b);
     final minY = points.map((p) => p.dy).reduce((a,b) => a < b ? a : b);
     final maxY = points.map((p) => p.dy).reduce((a,b) => a > b ? a : b);
-    final spanX = (maxX-minX).abs().clamp(1.0, double.infinity);
-    final spanY = (maxY-minY).abs().clamp(1.0, double.infinity);
+    final spanX = math.max(1.0, (maxX-minX).abs());
+    final spanY = math.max(1.0, (maxY-minY).abs());
     const pad = 28.0;
     final scale = ((size.width-2*pad)/spanX).clamp(0.1, double.infinity)
         .clamp(0.1, (size.height-2*pad)/spanY);
