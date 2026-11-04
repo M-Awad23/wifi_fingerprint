@@ -145,6 +145,16 @@ class LocalSurveyDatabase {
     });
   }
 
+  Future<List<Map<String, dynamic>>> getSessions() async {
+    final db = await database;
+    return db.query('survey_sessions', orderBy: 'started_at_utc DESC');
+  }
+
+  Future<List<Map<String, dynamic>>> getSensorSamples(int sessionId) async {
+    final db = await database;
+    return db.query('sensor_samples', where: 'session_id = ?', whereArgs: [sessionId], orderBy: 'sensor_timestamp_ns ASC');
+  }
+
   Future<Map<String, int>> getSessionCounts(int sessionId) async {
     final db = await database;
     final sensors = Sqflite.firstIntValue(await db.rawQuery(
