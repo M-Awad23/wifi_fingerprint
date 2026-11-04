@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
+import 'package:ar_flutter_plugin_flutterflow/ar_flutter_plugin.dart';
 import 'local_survey_database.dart';
 
 void main() => runApp(const WiFiFingerprintApp());
