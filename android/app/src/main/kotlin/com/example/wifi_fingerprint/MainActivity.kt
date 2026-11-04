@@ -27,6 +27,9 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity(), SensorEventListener {
     private val channelName = "wifi_fingerprint/scanner"
     private val permissionRequestCode = 4101
+    private val exportRequestCode = 4102
+    private var exportPath: String? = null
+    private var exportResult: MethodChannel.Result? = null
     private var pendingScanResult: MethodChannel.Result? = null
     private var receiverRegistered = false
     private var scanStartElapsedUs: Long = 0
@@ -67,8 +70,29 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         methodChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "scanWifi" -> scanWifi(result)
+                "exportDatabase" -> { exportPath = call.argument<String>("path"); exportResult = result; val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "application/octet-stream"; putExtra(Intent.EXTRA_TITLE, "wifi_fingerprint.db") }; startActivityForResult(intent, exportRequestCode) }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    @Deprecated("Document picker callback")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != exportRequestCode) return
+        val result = exportResult
+        exportResult = null
+        if (result == null) return
+        if (resultCode != RESULT_OK || data?.data == null) { result.success(false); return }
+        try {
+            val source = java.io.File(exportPath ?: error("Database path unavailable"))
+            contentResolver.openOutputStream(data.data!!).use { output ->
+                requireNotNull(output)
+                source.inputStream().use { input -> input.copyTo(output) }
+            }
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("EXPORT_FAILED", e.message, null)
         }
     }
 
