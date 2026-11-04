@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
 import 'local_survey_database.dart';
 
 void main() => runApp(const WiFiFingerprintApp());
@@ -143,6 +144,7 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, runSpacing: 8, children: [
         OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),
         OutlinedButton.icon(onPressed: _openSessionMaps, icon: const Icon(Icons.map_outlined, size: 16), label: const Text('Session maps')),
+        OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArSurveyPage())), icon: const Icon(Icons.view_in_ar, size: 16), label: const Text('AR survey')),
         Text(_isSurveying ? 'Status: Recording locally' : 'Status: Idle', style: const TextStyle(fontSize: 13)),
         Text('Scans: $_scanCount', style: const TextStyle(fontSize: 13)),
         Text('Saved sensor samples: $_savedSensorCount', style: const TextStyle(fontSize: 13)),
@@ -390,4 +392,85 @@ class SurveyMapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant SurveyMapPainter oldDelegate) => oldDelegate.points != points || oldDelegate.scans != scans || oldDelegate.selectedScan != selectedScan;
+}
+
+
+class ArSurveyPage extends StatefulWidget {
+  const ArSurveyPage({super.key});
+  @override
+  State<ArSurveyPage> createState() => _ArSurveyPageState();
+}
+class _ArSurveyPageState extends State<ArSurveyPage> {
+  static const MethodChannel _wifiChannel = MethodChannel('wifi_fingerprint/scanner');
+  ARSessionManager? _sessionManager;
+  List<Map<String, dynamic>> _accessPoints = [];
+  bool _scanning = false;
+  String _trackingStatus = 'Move the phone slowly to initialize tracking';
+  void _onArViewCreated(ARSessionManager sessionManager, ARObjectManager objectManager, ARAnchorManager anchorManager, ARLocationManager locationManager) {
+    _sessionManager = sessionManager;
+    sessionManager.onInitialize(showFeaturePoints: false, showPlanes: false, showWorldOrigin: false, handleTaps: false);
+    objectManager.onInitialize();
+    if (mounted) setState(() => _trackingStatus = 'AR tracking active');
+  }
+  Future<void> _scan() async {
+    if (_scanning) return;
+    setState(() => _scanning = true);
+    try {
+      final result = await _wifiChannel.invokeMethod<Map<dynamic, dynamic>>('scanWifi');
+      if (result == null || result['isFresh'] != true) throw PlatformException(code: 'STALE_SCAN_RESULTS', message: 'No fresh scan data received.');
+      final raw = result['accessPoints'] as List<dynamic>? ?? [];
+      final aps = raw.map((item) => Map<String, dynamic>.from(item as Map)).toList()
+        ..sort((a, b) => ((b['rssi'] as num?) ?? -100).compareTo((a['rssi'] as num?) ?? -100));
+      if (mounted) setState(() => _accessPoints = aps);
+    } on PlatformException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? e.code)));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scan failed: $e')));
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+  @override
+  void dispose() { _sessionManager?.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('AR survey')),
+    body: Stack(children: [
+      ARView(onARViewCreated: _onArViewCreated, permissionPromptDescription: 'Camera access is required for AR surveying.', permissionPromptButtonText: 'Grant camera access'),
+      Positioned(top: 12, left: 12, right: 12, child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: Colors.black.withOpacity(0.62), borderRadius: BorderRadius.circular(8)),
+        child: Text(_trackingStatus, style: const TextStyle(color: Colors.white, fontSize: 12)),
+      )),
+      const Center(child: Icon(Icons.add, color: Colors.white70, size: 30)),
+      Positioned(left: 12, right: 12, bottom: 12, child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.94), borderRadius: BorderRadius.circular(12)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Expanded(child: Text('Nearby access points', style: TextStyle(fontWeight: FontWeight.w600))),
+            Text('\${_accessPoints.length}', style: const TextStyle(fontSize: 12)),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(onPressed: _scanning ? null : _scan,
+              icon: _scanning ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.wifi_find, size: 16),
+              label: Text(_scanning ? 'Scanning' : 'Scan')),
+          ]),
+          if (_accessPoints.isEmpty)
+            const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('Scan to view nearby Wi-Fi signals.', style: TextStyle(fontSize: 12)))
+          else SizedBox(height: 150, child: ListView.builder(
+            itemCount: math.min(5, _accessPoints.length),
+            itemBuilder: (context, index) {
+              final ap = _accessPoints[index];
+              final rssi = (ap['rssi'] as num?)?.toInt() ?? -100;
+              return ListTile(dense: true, contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.wifi, color: rssi >= -60 ? Colors.green : (rssi >= -75 ? Colors.orange : Colors.grey)),
+                title: Text(ap['ssid']?.toString().isNotEmpty == true ? ap['ssid'].toString() : 'Hidden network', style: const TextStyle(fontSize: 13)),
+                subtitle: Text('\${ap['bssid'] ?? ''} · \${ap['frequency'] ?? '—'} MHz', style: const TextStyle(fontSize: 10)),
+                trailing: Text('\$rssi dBm', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)));
+            })),
+          const Text('AR camera tracking is active; AP direction/position is not inferred from RSSI alone.', style: TextStyle(fontSize: 10, color: Colors.black54)),
+        ]),
+      )),
+    ]),
+  );
 }
