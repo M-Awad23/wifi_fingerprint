@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
 import 'local_survey_database.dart';
 
@@ -127,6 +129,22 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
     return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)));
   }
 
+  Future<void> _exportDatabase() async {
+    try {
+      final db = await LocalSurveyDatabase.instance.database;
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      final dbPath = await getDatabasesPath();
+      final source = File('$dbPath/wifi_fingerprint.db');
+      if (!await source.exists()) throw Exception('Database file not found.');
+      await const MethodChannel('wifi_fingerprint/scanner').invokeMethod('exportDatabase', {'path': source.path});
+      _showMessage('Database export completed.');
+    } on PlatformException catch (e) {
+      _showMessage(e.message ?? 'Database export failed.');
+    } catch (e) {
+      _showMessage('Database export failed: $e');
+    }
+  }
+
   Future<void> _openSessionMaps() async {
     final sessions = await LocalSurveyDatabase.instance.getSessions();
     if (!mounted) return;
@@ -144,6 +162,7 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, runSpacing: 8, children: [
         OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),
         OutlinedButton.icon(onPressed: _openSessionMaps, icon: const Icon(Icons.map_outlined, size: 16), label: const Text('Session maps')),
+        OutlinedButton.icon(onPressed: _exportDatabase, icon: const Icon(Icons.file_download_outlined, size: 16), label: const Text('Export database')),
         OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArSurveyPage())), icon: const Icon(Icons.view_in_ar, size: 16), label: const Text('AR survey')),
         Text(_isSurveying ? 'Status: Recording locally' : 'Status: Idle', style: const TextStyle(fontSize: 13)),
         Text('Scans: $_scanCount', style: const TextStyle(fontSize: 13)),
