@@ -315,11 +315,10 @@ class TrajectoryPainter extends CustomPainter {
     final maxX = points.map((p) => p.dx).reduce((a,b) => a > b ? a : b);
     final minY = points.map((p) => p.dy).reduce((a,b) => a < b ? a : b);
     final maxY = points.map((p) => p.dy).reduce((a,b) => a > b ? a : b);
-    final spanX = math.max(1.0, (maxX-minX).abs());
-    final spanY = math.max(1.0, (maxY-minY).abs());
+    final spanX = math.max(1.0, (maxX-minX).abs()).toDouble();
+    final spanY = math.max(1.0, (maxY-minY).abs()).toDouble();
     const pad = 28.0;
-    final scale = ((size.width-2*pad)/spanX).clamp(0.1, double.infinity)
-        .clamp(0.1, (size.height-2*pad)/spanY);
+    final scale = math.max(0.1, math.min((size.width-2*pad)/spanX, (size.height-2*pad)/spanY)).toDouble();
     Offset transform(Offset p) => Offset(pad+(p.dx-minX)*scale, size.height-pad-(p.dy-minY)*scale);
     final path = Path()..moveTo(transform(points.first).dx, transform(points.first).dy);
     for (final point in points.skip(1)) {
