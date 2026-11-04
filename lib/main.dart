@@ -125,6 +125,12 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
     return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('$label: ${format(value)}', style: const TextStyle(fontSize: 12)));
   }
 
+  Future<void> _openSessionMaps() async {
+    final sessions = await LocalSurveyDatabase.instance.getSessions();
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => SavedSessionMapsPage(sessions: sessions)));
+  }
+
   Widget _field(String label, TextEditingController controller) => SizedBox(width: 220, child: TextField(controller: controller, style: const TextStyle(fontSize: 13), decoration: InputDecoration(labelText: label, isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10), border: const OutlineInputBorder())));
 
   @override
@@ -134,7 +140,7 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       Wrap(spacing: 8, runSpacing: 8, children: [_field('Session', _sessionController), _field('Building', _buildingController), _field('Location label', _locationController)]),
       const SizedBox(height: 10),
       Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, runSpacing: 8, children: [
-        OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),
+        OutlinedButton(onPressed: _toggleSurvey, child: Text(_isSurveying ? 'Stop survey' : 'Start survey')),\n        OutlinedButton.icon(onPressed: _openSessionMaps, icon: const Icon(Icons.map_outlined, size: 16), label: const Text('Session maps')),
         Text(_isSurveying ? 'Status: Recording locally' : 'Status: Idle', style: const TextStyle(fontSize: 13)),
         Text('Scans: $_scanCount', style: const TextStyle(fontSize: 13)),
         Text('Saved sensor samples: $_savedSensorCount', style: const TextStyle(fontSize: 13)),
@@ -172,4 +178,159 @@ class _SurveyHomePageState extends State<SurveyHomePage> {
       ]))),
     ]),
   );
+}
+
+
+class SavedSessionMapsPage extends StatelessWidget {
+  final List<Map<String, dynamic>> sessions;
+  const SavedSessionMapsPage({super.key, required this.sessions});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Saved session maps')),
+    body: sessions.isEmpty
+      ? const Center(child: Text('No saved survey sessions yet.'))
+      : ListView.builder(
+          itemCount: sessions.length,
+          itemBuilder: (context, index) {
+            final session = sessions[index];
+            final name = session['session_name']?.toString() ?? 'Session';
+            final started = session['started_at_utc']?.toString() ?? '';
+            final building = session['building']?.toString() ?? '';
+            return ListTile(
+              leading: const Icon(Icons.route),
+              title: Text(name),
+              subtitle: Text([building, started].where((s) => s.isNotEmpty).join(' • ')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => SessionTrajectoryPage(session: session))),
+            );
+          }),
+  );
+}
+
+class SessionTrajectoryPage extends StatefulWidget {
+  final Map<String, dynamic> session;
+  const SessionTrajectoryPage({super.key, required this.session});
+  @override
+  State<SessionTrajectoryPage> createState() => _SessionTrajectoryPageState();
+}
+
+class _SessionTrajectoryPageState extends State<SessionTrajectoryPage> {
+  late Future<List<Offset>> _trajectoryFuture;
+  int _sampleCount = 0;
+  int _stepCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _trajectoryFuture = _buildTrajectory();
+  }
+
+  Future<List<Offset>> _buildTrajectory() async {
+    final rows = await LocalSurveyDatabase.instance.getSensorSamples(widget.session['id'] as int);
+    _sampleCount = rows.length;
+    final points = <Offset>[Offset.zero];
+    var lastPeakNs = 0;
+    var previousMagnitude = 0.0;
+    var rising = false;
+    var heading = 0.0;
+    const gravity = 9.80665;
+    // A deliberately simple step detector: magnitude peak threshold + refractory interval.
+    for (final row in rows) {
+      final type = row['sensor_type']?.toString();
+      if (row['heading_degrees'] is num) heading = (row['heading_degrees'] as num).toDouble();
+      if (type != 'accelerometer') continue;
+      final x = (row['x'] as num?)?.toDouble() ?? 0;
+      final y = (row['y'] as num?)?.toDouble() ?? 0;
+      final z = (row['z'] as num?)?.toDouble() ?? 0;
+      final magnitude = (x*x + y*y + z*z).sqrt();
+      final timestamp = (row['sensor_timestamp_ns'] as num).toInt();
+      final above = magnitude > gravity + 1.15;
+      if (above && !rising && previousMagnitude <= magnitude &&
+          (lastPeakNs == 0 || timestamp - lastPeakNs > 320000000)) {
+        lastPeakNs = timestamp;
+        rising = true;
+        _stepCount++;
+        // Approximate step length. Heading is Android azimuth (degrees clockwise from north).
+        const stepLength = 0.65;
+        final radians = heading * 3.141592653589793 / 180.0;
+        final previous = points.last;
+        points.add(Offset(previous.dx + stepLength * _sin(radians),
+            previous.dy + stepLength * _cos(radians)));
+      }
+      if (!above) rising = false;
+      previousMagnitude = magnitude;
+    }
+    return points;
+  }
+
+  double _sin(double value) => value.sin();
+  double _cos(double value) => value.cos();
+
+  @override
+  Widget build(BuildContext context) {
+    final name = widget.session['session_name']?.toString() ?? 'Session';
+    return Scaffold(
+      appBar: AppBar(title: Text('$name · trajectory')),
+      body: FutureBuilder<List<Offset>>(
+        future: _trajectoryFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) return Center(child: Text('Could not build trajectory: ${snapshot.error}'));
+          final points = snapshot.data ?? const <Offset>[];
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(children: [
+              const Text('Approximate relative path from motion sensors', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text('Sensor samples: $_sampleCount • Estimated steps: $_stepCount'),
+              const SizedBox(height: 12),
+              Expanded(child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
+                child: points.length < 2
+                  ? const Center(child: Text('Not enough detected steps to draw a path.'))
+                  : CustomPaint(painter: TrajectoryPainter(points)),
+              )),
+              const SizedBox(height: 10),
+              const Text('Start ●  Path —  End ■', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 6),
+              const Text('This is a rough dead-reckoning sketch, not a calibrated floor plan. Step length and heading errors accumulate.', style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
+            ]),
+          );
+        }),
+    );
+  }
+}
+
+class TrajectoryPainter extends CustomPainter {
+  final List<Offset> points;
+  TrajectoryPainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final minX = points.map((p) => p.dx).reduce((a,b) => a < b ? a : b);
+    final maxX = points.map((p) => p.dx).reduce((a,b) => a > b ? a : b);
+    final minY = points.map((p) => p.dy).reduce((a,b) => a < b ? a : b);
+    final maxY = points.map((p) => p.dy).reduce((a,b) => a > b ? a : b);
+    final spanX = (maxX-minX).abs().clamp(1.0, double.infinity);
+    final spanY = (maxY-minY).abs().clamp(1.0, double.infinity);
+    const pad = 28.0;
+    final scale = ((size.width-2*pad)/spanX).clamp(0.1, double.infinity)
+        .clamp(0.1, (size.height-2*pad)/spanY);
+    Offset transform(Offset p) => Offset(pad+(p.dx-minX)*scale, size.height-pad-(p.dy-minY)*scale);
+    final path = Path()..moveTo(transform(points.first).dx, transform(points.first).dy);
+    for (final point in points.skip(1)) {
+      final q = transform(point); path.lineTo(q.dx, q.dy);
+    }
+    canvas.drawPath(path, Paint()..color=Colors.blue..strokeWidth=3..style=PaintingStyle.stroke..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round);
+    final start = transform(points.first), end = transform(points.last);
+    canvas.drawCircle(start, 6, Paint()..color=Colors.green);
+    canvas.drawRect(Rect.fromCenter(center:end,width:10,height:10), Paint()..color=Colors.red);
+  }
+
+  @override
+  bool shouldRepaint(covariant TrajectoryPainter oldDelegate) => oldDelegate.points != points;
 }
