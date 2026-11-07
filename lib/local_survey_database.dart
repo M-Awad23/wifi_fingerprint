@@ -62,15 +62,25 @@ class LocalSurveyDatabase {
             FOREIGN KEY(scan_batch_id) REFERENCES scan_batches(id)
           )
         ''');
-        await db.execute('CREATE INDEX idx_sensor_session_time ON sensor_samples(session_id, sensor_timestamp_ns)');
-        await db.execute('CREATE INDEX idx_scans_session_time ON scan_batches(session_id, received_at_utc)');
-        await db.execute('CREATE INDEX idx_ap_batch ON access_point_observations(scan_batch_id)');
+        await db.execute(
+          'CREATE INDEX idx_sensor_session_time ON sensor_samples(session_id, sensor_timestamp_ns)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_scans_session_time ON scan_batches(session_id, received_at_utc)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_ap_batch ON access_point_observations(scan_batch_id)',
+        );
       },
     );
     return _database!;
   }
 
-  Future<int> startSession({required String name, String? building, String? deviceModel}) async {
+  Future<int> startSession({
+    required String name,
+    String? building,
+    String? deviceModel,
+  }) async {
     final db = await database;
     return db.insert('survey_sessions', {
       'session_name': name,
@@ -82,9 +92,12 @@ class LocalSurveyDatabase {
 
   Future<void> stopSession(int id) async {
     final db = await database;
-    await db.update('survey_sessions',
+    await db.update(
+      'survey_sessions',
       {'ended_at_utc': DateTime.now().toUtc().toIso8601String()},
-      where: 'id = ?', whereArgs: [id]);
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> saveSensorSample({
@@ -104,9 +117,15 @@ class LocalSurveyDatabase {
       'y': values != null && values.length > 1 ? values[1].toDouble() : null,
       'z': values != null && values.length > 2 ? values[2].toDouble() : null,
       'heading_degrees': event['headingDegrees'],
-      'orientation_x': orientation != null && orientation.isNotEmpty ? orientation[0].toDouble() : null,
-      'orientation_y': orientation != null && orientation.length > 1 ? orientation[1].toDouble() : null,
-      'orientation_z': orientation != null && orientation.length > 2 ? orientation[2].toDouble() : null,
+      'orientation_x': orientation != null && orientation.isNotEmpty
+          ? orientation[0].toDouble()
+          : null,
+      'orientation_y': orientation != null && orientation.length > 1
+          ? orientation[1].toDouble()
+          : null,
+      'orientation_z': orientation != null && orientation.length > 2
+          ? orientation[2].toDouble()
+          : null,
     });
   }
 
@@ -152,27 +171,47 @@ class LocalSurveyDatabase {
 
   Future<List<Map<String, dynamic>>> getSensorSamples(int sessionId) async {
     final db = await database;
-    return db.query('sensor_samples', where: 'session_id = ?', whereArgs: [sessionId], orderBy: 'sensor_timestamp_ns ASC');
+    return db.query(
+      'sensor_samples',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'sensor_timestamp_ns ASC',
+    );
   }
 
   Future<List<Map<String, dynamic>>> getScanBatches(int sessionId) async {
     final db = await database;
-    return db.rawQuery('''
+    return db.rawQuery(
+      '''
       SELECT sb.id, sb.received_at_utc, sb.heading_degrees, sb.location_label,
              ap.ssid, ap.bssid, ap.rssi, ap.frequency_mhz
       FROM scan_batches sb
       LEFT JOIN access_point_observations ap ON ap.scan_batch_id = sb.id
       WHERE sb.session_id = ?
       ORDER BY sb.received_at_utc ASC, ap.rssi DESC
-    ''', [sessionId]);
+    ''',
+      [sessionId],
+    );
   }
 
   Future<Map<String, int>> getSessionCounts(int sessionId) async {
     final db = await database;
-    final sensors = Sqflite.firstIntValue(await db.rawQuery(
-      'SELECT COUNT(*) FROM sensor_samples WHERE session_id = ?', [sessionId])) ?? 0;
-    final scans = Sqflite.firstIntValue(await db.rawQuery(
-      'SELECT COUNT(*) FROM scan_batches WHERE session_id = ?', [sessionId])) ?? 0;
+    final sensors =
+        Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM sensor_samples WHERE session_id = ?',
+            [sessionId],
+          ),
+        ) ??
+        0;
+    final scans =
+        Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM scan_batches WHERE session_id = ?',
+            [sessionId],
+          ),
+        ) ??
+        0;
     return {'sensorSamples': sensors, 'scanBatches': scans};
   }
 }
